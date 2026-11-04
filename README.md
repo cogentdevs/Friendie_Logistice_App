@@ -1,97 +1,147 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+﻿# Friendie Logistics mobile foundation
 
-# Getting Started
+Bare React Native Community CLI, React Native 0.88.1, React 19.3.0, strict TypeScript, npm. No Expo packages. This repository contains infrastructure, reusable components and navigation placeholders; detailed screens come later.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Run on Windows / Android
 
-## Step 1: Start Metro
+Prerequisites: a React Native supported Node release (`^22.13.0 || ^24.3.0 || >=26.0.0`), JDK 17, Android Studio, SDK platform 37, build-tools 37.0.0, NDK 27.1.12297006, and a connected device/emulator. ANDROID_HOME must point to the Android SDK. Existing Gradle 9.4.1 / AGP 9.2.1 settings are retained; Kotlin is aligned to 2.2.10 with the RN Gradle plugin and AsyncStorage KSP.
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
-
-To start the Metro dev server, run the following command from the root of your React Native project:
-
-```sh
-# Using npm
+```powershell
+npm ci
+Copy-Item .env.example .env
+# Edit .env, then:
+npm run configure:env
 npm start
-
-# OR using Yarn
-yarn start
-```
-
-## Step 2: Build and run your app
-
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
-```sh
-# Using npm
+# Second terminal:
 npm run android
-
-# OR using Yarn
-yarn android
 ```
 
-### iOS
+Windows C++ staging uses a short, checkout-specific directory under the system temporary folder to avoid Ninja's 260-character limit. Override it with the FRIENDIE_CXX_ROOT Gradle property when necessary. Keep several GB free on the project drive; npm run android builds only the connected device architecture and uses Metro on port 8081. Start npm start in a separate terminal first; automatic packager startup is disabled to prevent an accidental switch to port 8082. Direct Gradle builds retain all configured architectures. Metro and Jest exclude native build trees from file discovery.
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+On Windows, generated Android build directories are junctions into a checkout-specific `%TEMP%/friendie-native-*` cache (C: on this machine). Sources/assets stay in the checkout and APK paths remain unchanged. `preandroid` ensures these links before building. Existing populated build folders can be migrated with `npm run android:cache` while Gradle is idle; migration verifies copied file counts/sizes before removing the old generated copies. Do not run a build concurrently with the one-time migration. If temporary-cache cleanup removes a target, the next `npm run android` recreates it and Gradle regenerates outputs.
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+`npm start` now checks Metro health and the project-root response header. It reuses a healthy server for this checkout instead of starting a duplicate on 8081. A different project/server is rejected. Startup flags such as `--reset-cache` require stopping the existing server first. Use `npm run test:workflow` to check the build-cache and Metro startup helpers.
 
-```sh
-bundle install
+The postinstall script adds AGP namespaces to the published geolocation 5.3.1 and linear-gradient 2.8.3 Android sources and removes their obsolete manifest package attributes. This is a repeatable, narrow compatibility shim, not manual module linking. Revisit it when those packages update. Never use --force or --legacy-peer-deps.
+
+`npm start`, `npm run android`, and `npm run ios` generate public environment configuration automatically. Direct Gradle/Xcode/Metro bundle commands require `npm run configure:env` first. Variables are generated from .env into a TypeScript-imported JSON file; React Native does not read process.env at runtime. Generated configuration is public mobile data, never secrets. The committed JSON is safe and unconfigured by default.
+
+## Preview and authentication
+
+Set `NAVIGATION_PREVIEW=true` in .env to browse the drawer and tabs in a debug build, then regenerate configuration and reload Metro. The preview is also gated by `__DEV__`, creates no token, does not authenticate a user, and is disabled in release. Keep it false for onboarding/auth tests. Production entry requires a securely stored Sanctum token and successful profile hydration. Sign In now uses React Hook Form/Zod with the supplied logo, field validation and secure auth service. Register and password recovery remain placeholders awaiting their designs. Social providers are omitted because no provider SDK/configuration is supplied.
+
+Bootstrap hydrates preferences and location, restores the secure session, and exposes retry on connection/configuration errors. A 401 removes the token, clears protected state and the React Query cache, and returns to guest navigation. Offline restoration preserves the token and displays retry. Logout attempts server revocation and clears local state after secure token removal; a failed revocation requires backend follow-up. Tokens are stored only with react-native-keychain, never Zustand persistence or AsyncStorage.
+
+## Laravel API contract (proposed, not verified)
+
+Set `API_BASE_URL` to your actual Laravel API prefix, for example `http://YOUR_COMPUTER_LAN_IP:8000/api/v1` for Android debug. Android emulator can use `http://10.0.2.2:8000/api/v1`. A physical device needs LAN access. Release APIs must use HTTPS. iOS transport security remains enabled; prefer HTTPS there.
+
+Confirm these routes with the backend before connecting:
+
+| Operation | Proposed route | Expected response |
+| --- | --- | --- |
+| Login | POST /auth/login | `{token: string}` for a Sanctum personal access token |
+| Session/profile | GET /user | `{data: User}` |
+| Logout | POST /auth/logout | revoke current token |
+| Listings | GET /listings | `{data: Listing[], meta: {current_page,last_page,per_page,total}}` |
+
+Set AUTH_API_VERIFIED=true only after confirming the login/profile paths and response DTOs with the actual Laravel backend. With the default false or an empty API_BASE_URL, Sign In fails locally as unavailable and sends no credentials. Login sends normalized email, unchanged password, and device_name. Adapt endpoints.ts and DTO mapping to the real contract. No Laravel files were modified. Axios includes JSON headers, secure bearer tokens, timeout, AbortSignal cancellation, and normalized 401/403/404/422/429/5xx/network errors. Field validation errors remain available on ApiError.fields. Query hooks own server data and pagination; Zustand owns preferences and local filters only.
+
+## Navigation
+
+One NavigationContainer mounts after restoration so cold-start links are processed after session state is known. RootStack gates Splash / Onboarding / AuthStack / AppDrawer. The application drawer wraps MainTabs, and each tab owns a module-scoped native stack:
+
+```text
+RootStack
+  Splash
+  Onboarding
+  AuthStack: Login, Register, ForgotPassword, ResetPassword(token,email?)
+  AppDrawer
+    MainTabs
+      HomeStack: Home, Search, Filters
+      ListingsStack: Listings, ListingDetails(listingId)
+      PostListingStack: PostListing, SendParcel, CarryParcel
+      MessagesStack: Conversations, Chat(conversationId)
+      ProfileStack: Profile, EditProfile
+    MyListings, SavedListings, MyReviews, Notifications,
+    Tracking, Settings, HelpSupport, About
 ```
 
-Then, and every time you update your native dependencies, run:
+Typed NavigatorScreenParams connect all stacks. Headers appear at feature stack level, with menu access at primary routes and back buttons on details. Drawer pages use drawer headers. Custom tabs include safe-area bottom padding and the burgundy center Post action. Tabs currently remain visible on nested feature screens; future full-screen details can move to a root presentation as needed. Authenticated routes are not available to guest links. Deferred notification targets route after authentication. `friendie://listings/123`, `friendie://messages/456`, and `friendie://reset-password/TOKEN?email=...` are configured. Universal/app links require real domains and association files later.
 
-```sh
-bundle exec pod install
+## Design and structure
+
+Brand tokens live in src/theme. palette.json supplies both colors.ts and Tailwind so they cannot drift. Primary #C10037, dark #97002B, navy #0D233E, white backgrounds and soft pink surfaces follow the supplied specification. Typography uses system fonts; no Inter files were supplied. No visual reference image was attached, so exact image matching has not been claimed.
+
+NativeWind 4.2.7 uses Tailwind 3.4.19, nativewind/babel, withNativeWind and global.css. The namespace-export Babel transform supports Zod v4 ES modules; the Worklets Babel plugin is last. Placeholder branded surfaces use NativeWind classes so styling is exercised in the shell. Reusable components use centralized tokens and typed props.
+
+```text
+assets/                     (add real fonts/images when supplied)
+src/
+  app/                      providers, bootstrap, generated public config
+  navigation/               typed root/auth/drawer/tab/feature stacks, linking
+    components/             custom tabs, drawer, menu and back buttons
+  features/
+    auth/                   schemas, hooks, service, placeholder screens
+    onboarding/             splash and onboarding placeholders
+    home/                   home placeholder
+    listings/               service, paginated query hook, placeholders
+    search/                 filter store and placeholders
+    location/               types, persisted selection, GPS/Places services
+    post-listing/           send/carry placeholders
+    messages/               conversation/chat placeholders
+    profile/                profile/edit placeholders
+    notifications/ reviews/ saved/ settings/ tracking/  placeholders
+  components/               ui, layout, shared placeholder shell
+  services/                 API, storage, notification abstraction
+  store/                    auth state and persisted UI preferences
+  theme/ hooks/ utils/ types/ constants/
+scripts/                    public environment generation, native compatibility
+__tests__/ test/             foundation tests and native test doubles
+android/ ios/ docs/
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+Only meaningful implemented folders are created. Add assets/fonts, images, icons and animations when real assets are supplied. Existing Android package `com.friendie_logistics_app`, native folder names, and Xcode target remain stable to avoid recreating an existing project. The JavaScript registered component is FriendieLogistics and displayed application name is Friendie Logistics. Choose final release bundle IDs before creating Firebase apps.
 
-```sh
-# Using npm
-npm run ios
+## Foreground location and maps
 
-# OR using Yarn
-yarn ios
+LocationSelection is explicitly either worldwide or a radius filter with source gps/manual, real latitude/longitude and a positive radiusKm. GPS originates from the device coordinates and exposes measured accuracy. Manual resolution and map pin changes supply the radius origin; geographical area centers are never substituted for GPS. An explicit GPS request cannot overwrite a manual choice made while that request is pending. Stored selection is a preference; GPS acquisition does not start automatically.
+
+Only foreground fine/coarse location is declared. Runtime handling covers denial, permanent blocking, unavailable services, disabled services, timeout and accuracy. Android allows approximate permission; callers should inspect accuracyMeters when choosing a radius. No background location or continuous tracking. Laravel remains authoritative for listing distance calculations; the Haversine utility is for display only.
+
+PlacesProvider and placesService prepare search, place resolution and reverse geocoding through a configured authenticated Laravel proxy (`PLACES_PROXY_URL`). The proposed proxy responses are `{data: PlaceSuggestion[]}`, `{data: Coordinates}`, `{data: string}` at /search, /resolve and /reverse respectively. These endpoints must be implemented separately. No paid Google request is made by default, and no Google server credential belongs in the mobile bundle.
+
+Android Maps API key: set FRIENDIE_MAPS_API_KEY in your user-level Gradle properties (`~/.gradle/gradle.properties`) or build environment. The manifest placeholder reads it. Mobile SDK keys are extractable from an APK: restrict them to the Android application ID and signing SHA fingerprints. Enable Maps SDK and billing in your own project. Without a key, map rendering is pending; no map screen is mounted by the placeholder foundation.
+
+## Firebase and notifications
+
+Packages are installed; delivery remains disabled until real Firebase configuration is supplied. Android: register the actual application ID, download google-services.json into android/app, then set FIREBASE_ENABLED=true and rebuild. Gradle applies the Google Services plugin only when that file exists. iOS: add the real GoogleService-Info.plist to the Xcode target; AppDelegate initializes Firebase only when the bundled file exists.
+
+The notification service provides user-triggered permission requests, device-token retrieval, foreground subscriptions, token refresh subscriptions, background handler registration, cold/background-open handling and validated listing/chat navigation targets. The headless background handler is deliberately inert until the inbox/backend contract exists. Nothing pretends to send or receive notifications. Bind token updates to the authenticated backend when the endpoint exists; bind onForeground to the later inbox/UI implementation. RNFirebase 27 retains the requested FCM token interface but marks it deprecated in favor of Installation ID messaging; coordinate a server migration before opting into FID.
+
+## iOS on macOS (not tested on Windows)
+
+1. Install supported Xcode/CocoaPods and run bundle install, then `cd ios; bundle exec pod install`.
+2. RNFirebase 27 / Firebase Apple SDK 13 requires SPM plus dynamic frameworks. The Podfile uses `use_frameworks! :linkage => :dynamic` per the installed package instructions. Do not copy older static-Firebase pod guidance. Review Xcode SPM resolution and deployment targets on macOS.
+3. Permission handlers and descriptions cover foreground location, camera, photo library and notifications. No background location capability is enabled. Image library selection uses the native picker.
+4. MapKit is the default iOS map provider. For Google Maps, install pods with FRIENDIE_IOS_GOOGLE_MAPS=true, provide an iOS-restricted Maps SDK key via the FRIENDIE_MAPS_API_KEY Xcode build setting, and select Google provider only after configuration. The Info.plist build-setting entry and conditional AppDelegate initialization are prepared.
+5. Add real Firebase plist to target membership, enable Push Notifications, configure APNs credentials in Firebase, and enable Remote notifications background mode only when delivery is configured. Do not enable background location.
+6. Choose signing team/bundle ID, verify URL schemes, then run npm run ios. No Xcode, CocoaPods, signing or iOS build has been executed on Windows.
+
+## Checks
+
+```powershell
+npm run typecheck
+npm run lint
+npm test -- --runInBand
+npx react-native doctor
+npm ls --depth=0
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+See docs/SETUP_REPORT.md for the actual results and remaining limitations, and docs/DEPENDENCIES.md for installed runtime versions. Do not infer a passing device test from an automated mock-based test. Release signing still uses the original template debug configuration and must be replaced with the real upload keystore/CI signing before any release distribution.
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+Official setup references used: [NativeWind bare installation](https://www.nativewind.dev/docs/getting-started/installation), [Reanimated compatibility](https://docs.swmansion.com/react-native-reanimated/docs/guides/compatibility/), [React Native Permissions](https://github.com/zoontek/react-native-permissions), [RNFirebase setup](https://rnfirebase.io/), [RNFirebase v27 migration](https://rnfirebase.io/migrating-to-v27). Installed package READMEs and native source were also inspected.
 
-## Step 3: Modify your app
+### Logo asset
 
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+Use the shared BrandLogo component from src/components/common/BrandLogo.tsx for every logo placement. Its single source is the user-supplied src/assets/logo.png. Preserve original proportions and colors; do not recreate the logo with text/icons, tint it or substitute another image.
