@@ -73,3 +73,20 @@ yarn-error.log
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# Private local configuration
+.env
+.env.*
+!.env.example
+android/app/google-services.json
+ios/**/GoogleService-Info.plist
+android/gradle.properties.local
+
+# Local validation output
+.validation/
+*.validation.log
+*.validation.json
+
+# Generated Windows build junctions (also ignore them as links).
+/android/app/build
+/android/build

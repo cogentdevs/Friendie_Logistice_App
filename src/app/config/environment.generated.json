@@ -1,0 +1,17 @@
+{
+  "apiBaseUrl": "",
+  "termsUrl": "",
+  "privacyUrl": "",
+  "authApiVerified": false,
+  "profileApiVerified": false,
+  "myListingsApiVerified": false,
+  "listingsApiVerified": false,
+  "listingDetailsApiVerified": false,
+  "chatApiVerified": false,
+  "chatIdempotencyVerified": false,
+  "navigationPreview": false,
+  "uiPreviewEnabled": true,
+  "firebaseEnabled": false,
+  "placesProxyUrl": "",
+  "placesApiVerified": false
+}

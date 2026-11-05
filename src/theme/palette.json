@@ -1,0 +1,23 @@
+{
+  "primary": "#C10037",
+  "primaryDark": "#97002B",
+  "secondary": "#374B5C",
+  "navy": "#0D233E",
+  "text": "#666666",
+  "textMuted": "#9C9C9C",
+  "white": "#FFFFFF",
+  "offWhite": "#F9FAFC",
+  "lightGrey": "#F1F1F1",
+  "border": "#E3E3E3",
+  "softPink": "#FCF0F3",
+  "palePink": "#FFF7F9",
+  "lavender": "#F7F7FF",
+  "success": "#22C55E",
+  "danger": "#FF0000",
+  "warning": "#FFBA08",
+  "info": "#4C82F7",
+  "orange": "#FF823B",
+  "burgundyDeep": "#760022",
+  "successSoft": "#DCFCE7",
+  "successDark": "#166534"
+}

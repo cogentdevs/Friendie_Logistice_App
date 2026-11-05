@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>friendie_logistics_app</string>
+	<string>Friendie Logistics</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -24,6 +24,8 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>FriendieMapsAPIKey</key>
+	<string>$(FRIENDIE_MAPS_API_KEY)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
@@ -35,8 +37,14 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
-	<key>RCTNewArchEnabled</key>
+	<string>Use your current location to find nearby parcel and traveller listings.</string>
+	<key>NSCameraUsageDescription</key>
+ <string>Take a photo for your listing or profile when you choose to.</string>
+ <key>NSPhotoLibraryUsageDescription</key>
+ <string>Select photos for your listing or profile.</string>
+ <key>CFBundleURLTypes</key>
+ <array><dict><key>CFBundleURLSchemes</key><array><string>friendie</string></array></dict></array>
+ <key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>

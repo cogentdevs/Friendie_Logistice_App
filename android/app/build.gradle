@@ -72,7 +72,21 @@ def enableProguardInReleaseBuilds = false
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+// Short Windows staging avoids Ninja's 260-character object-file limit.
+// The override is useful for machines with a long user temporary-directory path.
+def windowsHost = System.getProperty('os.name').toLowerCase().contains('windows')
+def friendieCxxRoot = project.findProperty('FRIENDIE_CXX_ROOT') ?: (windowsHost
+    ? new File(System.getProperty('java.io.tmpdir'), 'flcxx-' + Integer.toHexString(rootDir.absolutePath.hashCode())).absolutePath
+    : null)
+
 android {
+    if (friendieCxxRoot) {
+        externalNativeBuild {
+            cmake {
+                buildStagingDirectory file(friendieCxxRoot)
+            }
+        }
+    }
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
@@ -82,6 +96,7 @@ android {
         applicationId "com.friendie_logistics_app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
+        manifestPlaceholders = [MAPS_API_KEY: (project.findProperty('FRIENDIE_MAPS_API_KEY') ?: System.getenv('FRIENDIE_MAPS_API_KEY') ?: '')]
         versionCode 1
         versionName "1.0"
     }
@@ -116,4 +131,9 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+}
+
+// Credentials are optional for the foundation; never synthesize a Firebase project.
+if (file('google-services.json').exists()) {
+    apply plugin: 'com.google.gms.google-services'
 }

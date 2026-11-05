@@ -144,4 +144,52 @@ Official setup references used: [NativeWind bare installation](https://www.nativ
 
 ### Logo asset
 
-Use the shared BrandLogo component from src/components/common/BrandLogo.tsx for every logo placement. Its single source is the user-supplied src/assets/logo.png. Preserve original proportions and colors; do not recreate the logo with text/icons, tint it or substitute another image.
+Use the shared BrandLogo component from src/components/common/BrandLogo.tsx for every logo placement. Welcome uses the user-supplied src/assets/logo.png; all other screens use src/assets/logo1.png. Preserve original proportions and colors; do not recreate the logo with text/icons, tint it or substitute another image.
+
+### UI-only development workflow
+
+Debug builds currently default UI_PREVIEW_ENABLED=true: tap Sign In to open Home with no credentials or API request. This is labeled development navigation, creates no session/token, and can be exited from the drawer. Set UI_PREVIEW_ENABLED=false in .env and regenerate configuration for real auth testing. Release builds always require real authentication. See docs/UI_PREVIEW_REPORT.md.
+
+### Advanced location filters
+
+See docs/SCREEN_08_REPORT.md for GPS/manual radius behavior, validation and integration limits. Places requests require both PLACES_PROXY_URL and PLACES_API_VERIFIED=true after its contract is verified. Listings and count previews remain unavailable until the Laravel contract is verified.
+
+### Listings results
+
+See docs/SCREEN_09_REPORT.md for the results UI, pagination, device-local bookmarks, checks and pending verified Laravel integration.
+
+### Listing details
+
+See docs/SCREEN_10_REPORT.md for the details layout, action guards and pending Laravel request/contact integrations. The detail contract has its own LISTING_DETAILS_API_VERIFIED flag and remains disabled until verified.
+
+### Chat conversation
+
+See docs/SCREEN_11_REPORT.md for the chat lifecycle, foreground polling fallback, memory-only drafts and pending verified chat/idempotency/upload contracts. CHAT_API_VERIFIED and CHAT_IDEMPOTENCY_VERIFIED default false.
+
+### Listings UI demo
+
+Debug UI preview now shows labeled sample listings and matching details. Tap Sign In, then Listings. See docs/LISTINGS_DEMO_REPORT.md. Real-auth/release builds keep verified API behavior.
+
+### Post a Listing
+
+The Post tab and existing Send/Carry entries now open the validated route/date/weight form. Continue opens an in-memory draft review; no listing is published. See docs/SCREEN_12_REPORT.md for draft/back behavior, validation and remaining publishing steps.
+
+### UI development: screen access
+
+In active debug UI preview, keep every implemented app screen reachable with demo IDs. Bottom tabs stay visible; Messages contains sample chats plus Post/Details/Search/Filters shortcuts. Demo listing Message opens a local-only sample chat. No real login is needed for these preview flows. See docs/UI_PREVIEW_ACCESS_REPORT.md.
+
+### My Listings
+
+Open Home -> My Listings or Messages -> Preview My Listings in UI preview. Active/Completed/Expired have labeled sample rows and matching details IDs. Real reads require MY_LISTINGS_API_VERIFIED and an authenticated server-scoped endpoint; management mutations are not connected. See docs/SCREEN_13_REPORT.md.
+
+### Premium Profile
+
+Open the existing Profile bottom tab. UI preview includes labeled sample statistics; real profile reads require PROFILE_API_VERIFIED. Confirmed Logout clears the secure session and user-specific local state. See docs/SCREEN_15_REPORT.md for changed files, validation and pending integrations.
+
+### Premium Register
+
+Sign In -> Register opens the validated account form. Configure real TERMS_URL and PRIVACY_URL for legal documents. Registration remains honestly unavailable until a verified Laravel registration contract is supplied; no account or session is fabricated. See docs/SCREEN_16_REPORT.md for implementation, tests and remaining dependencies.
+
+### Forgot Password
+
+Sign In -> Forgot Password opens the validated recovery form. Debug UI preview includes a clearly labeled confirmation preview. Real reset requests and reset-token links remain unavailable until the Laravel endpoint and approved HTTPS contract are verified. See docs/SCREEN_17_REPORT.md for security decisions, changed files and checks.

@@ -30,7 +30,7 @@ class SceneDelegate: RCTDefaultReactNativeFactoryDelegate, UIWindowSceneDelegate
     #endif
     
     reactNativeFactory?.startReactNative(
-      withModuleName: "friendie_logistics_app",
+      withModuleName: "FriendieLogistics",
       in: window,
       connectionOptions: connectionOptions
     )
