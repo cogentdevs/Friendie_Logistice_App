@@ -17,7 +17,8 @@ export function logoutSession(client: QueryClient) {
   const operation = (async () => {
     const owner =
       useAuthStore.getState().user?.id ?? useListingBookmarks.getState().owner;
-    await client.cancelQueries();
+    // A query cancellation failure must not strand secure credentials.
+    await client.cancelQueries().catch(() => {});
     // If Keychain removal fails this rejects and leaves authentication/navigation intact.
     await authService.logout();
     useSearchStore.getState().reset();

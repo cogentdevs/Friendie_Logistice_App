@@ -36,6 +36,10 @@ jest.mock('lucide-react-native', () => {
   const Icon = props => React.createElement(View, props);
   return Object.fromEntries(
     [
+      'MessagesSquare',
+      'LayoutDashboard',
+      'List',
+      'Camera',
       'CreditCard',
       'LogOut',
       'Paperclip',
@@ -69,6 +73,7 @@ jest.mock('lucide-react-native', () => {
       'Home',
       'Plus',
       'MessageCircle',
+      'MessageSquareText',
       'UserRound',
       'Heart',
       'Star',
@@ -76,6 +81,8 @@ jest.mock('lucide-react-native', () => {
       'MapPin',
       'Settings',
       'CircleHelp',
+      'ShieldAlert',
+      'Clock',
       'Info',
     ].map(name => [name, Icon]),
   );
@@ -93,4 +100,9 @@ jest.mock('react-native-linear-gradient', () => ({
 jest.mock('react-native-geolocation-service', () => ({
   getCurrentPosition: jest.fn((_success, failure) => failure({ code: 2 })),
   requestAuthorization: jest.fn(async () => 'denied'),
+}));
+
+jest.mock('react-native-image-picker', () => ({
+  launchCamera: jest.fn(async () => ({ didCancel: true })),
+  launchImageLibrary: jest.fn(async () => ({ didCancel: true })),
 }));

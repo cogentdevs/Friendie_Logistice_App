@@ -1,6 +1,7 @@
+import { ProfileMenuRow } from '../src/features/profile/components/ProfileMenuRow';
 import React from 'react';
 import Renderer, { ReactTestRenderer } from 'react-test-renderer';
-import { Alert, Image } from 'react-native';
+import { Image } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProfileScreen } from '../src/features/profile/screens/ProfileScreen';
 import * as profileService from '../src/features/profile/services/profileService';
@@ -68,13 +69,11 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 test('verified backend identity and zero statistics display without reference defaults', async () => {
-  jest
-    .spyOn(profileService, 'getProfile')
-    .mockResolvedValue({
-      ...person,
-      verified: true,
-      statistics: { listings: 0, reviews: 0, rating: 0 },
-    });
+  jest.spyOn(profileService, 'getProfile').mockResolvedValue({
+    ...person,
+    verified: true,
+    statistics: { listings: 0, reviews: 0, rating: 0 },
+  });
   await mount();
   expect(
     tree.root.findAll(node => node.props.children === 'Verified Member').length,
@@ -83,27 +82,56 @@ test('verified backend identity and zero statistics display without reference de
     tree.root.findAll(node => node.props.children === '0.0').length,
   ).toBeGreaterThan(0);
   expect(tree.root.findAll(node => node.props.children === 24)).toHaveLength(0);
-  await press('My Listings');
+  expect(
+    tree.root.findAllByType(ProfileMenuRow).map(row => row.props.label),
+  ).toEqual([
+    'Dashboard',
+    'Edit Profile',
+    'My Listing',
+    'Messages',
+    'Reviews',
+    'Change Password',
+    'Logout',
+  ]);
+  for (const label of [
+    'Saved Listings',
+    'Payment Methods',
+    'Notifications',
+    'Help & Support',
+  ])
+    expect(
+      tree.root
+        .findAllByType(ProfileMenuRow)
+        .some(row => row.props.label === label),
+    ).toBe(false);
+  await press('Dashboard');
+  expect(nav.navigate).toHaveBeenCalledWith('ProfileDashboard');
+  await press('Edit Profile');
+  expect(nav.navigate).toHaveBeenCalledWith('EditProfile');
+  await press('My Listing');
   expect(nav.navigate).toHaveBeenCalledWith('MyListings');
-  await press('Saved Listings');
-  expect(nav.navigate).toHaveBeenCalledWith('SavedListings');
-  await press('My Reviews');
-  expect(nav.navigate).toHaveBeenCalledWith('MyReviews');
-  await press('Notifications');
-  expect(nav.navigate).toHaveBeenCalledWith('Notifications');
-  await press('Help & Support');
-  expect(nav.navigate).toHaveBeenCalledWith('HelpSupport');
+  await press('Messages');
+  expect(nav.navigate).toHaveBeenCalledWith('MainTabs', {
+    screen: 'MessagesStack',
+    params: { screen: 'Conversations' },
+  });
+  await press('Reviews');
+  expect(nav.navigate).toHaveBeenCalledWith('MyReviews', {
+    initialTab: 'visitors',
+    returnTo: 'Profile',
+  });
+  await press('Change Password');
+  expect(nav.navigate).toHaveBeenCalledWith('ChangePassword', {
+    returnTo: 'Profile',
+  });
   await press('Profile Settings');
   expect(nav.navigate).toHaveBeenCalledWith('Settings');
 });
-test('missing stats/verification are safe; failed avatar falls back and payments are honest', async () => {
-  jest
-    .spyOn(profileService, 'getProfile')
-    .mockResolvedValue({
-      ...person,
-      avatarUrl: 'https://example.test/avatar.jpg',
-    });
-  const alert = jest.spyOn(Alert, 'alert');
+test('missing stats/verification are safe and failed avatar falls back', async () => {
+  jest.spyOn(profileService, 'getProfile').mockResolvedValue({
+    ...person,
+    avatarUrl: 'https://example.test/avatar.jpg',
+  });
   await mount();
   expect(
     tree.root.findAll(
@@ -115,11 +143,6 @@ test('missing stats/verification are safe; failed avatar falls back and payments
   ).toBeGreaterThan(0);
   await Renderer.act(async () => tree.root.findByType(Image).props.onError());
   expect(tree.root.findAllByType(Image)).toHaveLength(0);
-  await press('Payment Methods');
-  expect(alert).toHaveBeenCalledWith(
-    'Payment Methods unavailable',
-    expect.any(String),
-  );
 });
 test('profile error has a working retry', async () => {
   const get = jest
@@ -135,19 +158,12 @@ test('Logout confirms, cancellation does nothing, failure remains visible and du
   const logout = jest
     .spyOn(logoutService, 'logoutSession')
     .mockRejectedValue(Error('Keychain locked'));
-  const alert = jest.spyOn(Alert, 'alert');
   await mount();
   await press('Logout');
   expect(logout).not.toHaveBeenCalled();
-  await Renderer.act(async () =>
-    alert.mock.calls.at(-1)![2]!.find(button => button.text === 'Cancel')!
-      .onPress!(),
-  );
+  await press('Cancel logout');
   await press('Logout');
-  await Renderer.act(async () =>
-    alert.mock.calls.at(-1)![2]!.find(button => button.text === 'Logout')!
-      .onPress!(),
-  );
+  await press('Confirm logout');
   await settle();
   expect(logout).toHaveBeenCalledTimes(1);
   expect(
@@ -162,12 +178,11 @@ test('UI preview keeps Edit Profile accessible', async () => {
   const previous = appConfig.uiPreviewEnabled;
   appConfig.uiPreviewEnabled = true;
   useDevelopmentStore.setState({ previewActive: true });
-  jest
-    .spyOn(profileService, 'getProfile')
-    .mockResolvedValue({
-      ...person,
-      statistics: { listings: 24, reviews: 128, rating: 4.9 },
-    });
+  useAuthStore.getState().clear();
+  jest.spyOn(profileService, 'getProfile').mockResolvedValue({
+    ...person,
+    statistics: { listings: 24, reviews: 128, rating: 4.9 },
+  });
   try {
     await mount();
     await press('Edit Profile');

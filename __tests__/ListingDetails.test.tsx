@@ -59,7 +59,7 @@ async function settle() {
     await new Promise<void>(resolve => setTimeout(() => resolve(), 25));
   });
 }
-async function mount() {
+async function mount(returnTo?: 'MyReviews') {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
@@ -70,7 +70,7 @@ async function mount() {
           route={{
             key: 'detail',
             name: 'ListingDetails',
-            params: { listingId: '12' },
+            params: { listingId: '12', ...(returnTo ? { returnTo } : {}) },
           }}
           navigation={
             nav as unknown as NativeStackScreenProps<
@@ -302,4 +302,17 @@ test('network error exposes a working Retry action', async () => {
   expect(
     tree.root.findAll(node => node.props.children === 'Carrying Fee').length,
   ).toBeGreaterThan(0);
+});
+
+test('details opened from a review return to the existing Reviews route without resetting its selected tab', async () => {
+  jest.spyOn(service, 'getListingDetails').mockResolvedValue(fixture);
+  jest.spyOn(navigationRef, 'isReady').mockReturnValue(true);
+  const navigate = jest
+    .spyOn(navigationRef, 'navigate')
+    .mockImplementation(() => {});
+  await mount('MyReviews');
+  await Renderer.act(async () => {
+    nav.setOptions.mock.calls.at(-1)![0].headerLeft().props.onPress();
+  });
+  expect(navigate).toHaveBeenCalledWith('AppDrawer', { screen: 'MyReviews' });
 });

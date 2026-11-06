@@ -16,13 +16,13 @@ import { DrawerScreenProps } from '@react-navigation/drawer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  Bell,
   Check,
-  CircleHelp,
-  CreditCard,
-  Heart,
+  LayoutDashboard,
+  List,
+  UserRound,
+  MessageCircle,
+  LockKeyhole,
   LogOut,
-  Package,
   Settings,
   Star,
 } from 'lucide-react-native';
@@ -38,6 +38,7 @@ import { colors } from '../../../theme';
 import { useAuthStore } from '../../../store/authStore';
 import { useProfile } from '../hooks/useProfile';
 import { logoutSession } from '../../auth/services/sessionLogout';
+import { LogoutConfirmationModal } from '../../auth/components/LogoutConfirmationModal';
 import { ProfileMenuRow } from '../components/ProfileMenuRow';
 type Props = CompositeScreenProps<
   NativeStackScreenProps<ProfileStackParamList, 'Profile'>,
@@ -56,8 +57,8 @@ export function ProfileScreen({ navigation }: Props) {
   const [avatarFailed, setAvatarFailed] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
-  const confirming = useRef(false),
-    loggingOut = useRef(false);
+  const [logoutVisible, setLogoutVisible] = useState(false);
+  const loggingOut = useRef(false);
   const uri = identity?.avatarUrl || undefined;
   const failedUri = useRef<string | undefined>(undefined);
   const avatarUnavailable = avatarFailed && failedUri.current === uri;
@@ -76,77 +77,58 @@ export function ProfileScreen({ navigation }: Props) {
     } catch {
       setError('Could not clear your secure session. Please try Logout again.');
     } finally {
+      setLogoutVisible(false);
       loggingOut.current = false;
       setBusy(false);
     }
   };
-  const confirmLogout = () => {
-    if (confirming.current || loggingOut.current) return;
-    confirming.current = true;
-    Alert.alert(
-      'Logout?',
-      'Are you sure you want to sign out?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-          onPress: () => {
-            confirming.current = false;
-          },
-        },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: () => {
-            confirming.current = false;
-            signOut().catch(() => {});
-          },
-        },
-      ],
-      {
-        cancelable: true,
-        onDismiss: () => {
-          confirming.current = false;
-        },
-      },
-    );
-  };
   const rows = [
     {
-      label: 'My Listings',
-      icon: Package,
+      label: 'Dashboard',
+      icon: LayoutDashboard,
+      onPress: () => navigation.navigate('ProfileDashboard'),
+    },
+    {
+      label: 'Edit Profile',
+      icon: UserRound,
+      onPress: () => navigation.navigate('EditProfile'),
+    },
+    {
+      label: 'My Listing',
+      icon: List,
       onPress: () => navigation.navigate('MyListings'),
     },
     {
-      label: 'Saved Listings',
-      icon: Heart,
-      onPress: () => navigation.navigate('SavedListings'),
-    },
-    {
-      label: 'My Reviews',
-      icon: Star,
-      onPress: () => navigation.navigate('MyReviews'),
-    },
-    {
-      label: 'Payment Methods',
-      icon: CreditCard,
+      label: 'Messages',
+      icon: MessageCircle,
       onPress: () =>
-        Alert.alert(
-          'Payment Methods unavailable',
-          'Payment methods are not connected yet.',
-        ),
+        navigation.navigate('MainTabs', {
+          screen: 'MessagesStack',
+          params: { screen: 'Conversations' },
+        }),
     },
     {
-      label: 'Notifications',
-      icon: Bell,
-      onPress: () => navigation.navigate('Notifications'),
+      label: 'Reviews',
+      icon: Star,
+      onPress: () =>
+        navigation.navigate('MyReviews', {
+          initialTab: 'visitors',
+          returnTo: 'Profile',
+        }),
     },
     {
-      label: 'Help & Support',
-      icon: CircleHelp,
-      onPress: () => navigation.navigate('HelpSupport'),
+      label: 'Change Password',
+      icon: LockKeyhole,
+      onPress: () =>
+        navigation.navigate('ChangePassword', { returnTo: 'Profile' }),
     },
-    { label: 'Logout', icon: LogOut, onPress: confirmLogout },
+    {
+      label: 'Logout',
+      icon: LogOut,
+      onPress: () => {
+        if (!loggingOut.current) setLogoutVisible(true);
+      },
+    },
   ];
   const stats = [
     { label: 'Listings', value: statistics?.listings },
@@ -184,13 +166,9 @@ export function ProfileScreen({ navigation }: Props) {
             cssInterop={false}
             accessibilityRole="button"
             accessibilityLabel="Edit Profile"
-            accessibilityHint={
-              demo
-                ? 'Open the profile editor preview'
-                : 'Profile editing is not available yet'
-            }
-            accessibilityState={{ disabled: !demo || busy }}
-            disabled={!demo || busy}
+            accessibilityHint="Open your profile editor"
+            accessibilityState={{ disabled: busy }}
+            disabled={busy}
             onPress={() => navigation.navigate('EditProfile')}
             style={styles.identity}
           >
@@ -280,13 +258,8 @@ export function ProfileScreen({ navigation }: Props) {
             </View>
           )}
           <View style={styles.menu}>
-            {rows.map((row, index) => (
-              <ProfileMenuRow
-                key={row.label}
-                {...row}
-                disabled={busy}
-                last={index === rows.length - 1}
-              />
+            {rows.map(row => (
+              <ProfileMenuRow key={row.label} {...row} disabled={busy} />
             ))}
           </View>
           {busy && (
@@ -306,6 +279,16 @@ export function ProfileScreen({ navigation }: Props) {
           )}
         </View>
       </ScrollView>
+      <LogoutConfirmationModal
+        visible={logoutVisible}
+        busy={busy}
+        onCancel={() => {
+          if (!loggingOut.current) setLogoutVisible(false);
+        }}
+        onConfirm={() => {
+          signOut().catch(() => {});
+        }}
+      />
     </SafeScreen>
   );
 }

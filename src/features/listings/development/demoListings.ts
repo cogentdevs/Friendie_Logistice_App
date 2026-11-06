@@ -74,6 +74,13 @@ export function getDemoListings(
   location: LocationSelection,
 ) {
   const matches = demoListings.filter(item => {
+    if (filters.destinationCountry && filters.destinationCountry.code !== 'AE')
+      return false;
+    if (
+      filters.weightKg !== undefined &&
+      (item.capacityKg ?? 0) < filters.weightKg
+    )
+      return false;
     if (filters.from && filters.from.country.code !== 'PK') return false;
     if (filters.to && filters.to.country.code !== 'AE') return false;
     if (filters.type && item.type !== filters.type) return false;

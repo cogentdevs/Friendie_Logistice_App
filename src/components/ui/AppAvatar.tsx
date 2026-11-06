@@ -6,10 +6,12 @@ export function AppAvatar({
   name,
   uri,
   size = 48,
+  onError,
 }: {
   name: string;
   uri?: string;
   size?: number;
+  onError?: () => void;
 }) {
   const style = {
     width: size,
@@ -18,6 +20,7 @@ export function AppAvatar({
   };
   return uri ? (
     <Image
+      onError={onError}
       accessibilityLabel={name + ' avatar'}
       source={{
         uri,

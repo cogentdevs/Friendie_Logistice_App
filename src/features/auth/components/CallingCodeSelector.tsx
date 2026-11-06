@@ -9,25 +9,31 @@ export function CallingCodeSelector({
   disabled,
   onChange,
 }: {
-  value: PhoneCountry;
+  value: PhoneCountry | undefined;
   disabled: boolean;
   onChange: (value: PhoneCountry) => void;
 }) {
   const [open, setOpen] = React.useState(false);
-  const selected = phoneCountries.find(country => country.id === value)!;
+  const selected = phoneCountries.find(country => country.id === value);
   return (
     <>
       <Pressable
         cssInterop={false}
         accessibilityRole="button"
-        accessibilityLabel={`Calling code: ${selected.name} +${selected.dial}`}
+        accessibilityLabel={
+          selected
+            ? `Calling code: ${selected.name} +${selected.dial}`
+            : 'Select calling code'
+        }
         accessibilityState={{ disabled, expanded: open }}
         disabled={disabled}
         onPress={() => setOpen(true)}
         style={styles.trigger}
       >
         <Phone size={20} color={colors.secondary} />
-        <AppText color={colors.navy}>+{selected.dial}</AppText>
+        <AppText color={colors.navy}>
+          {selected ? '+' + selected.dial : 'Code'}
+        </AppText>
         <ChevronDown size={16} color={colors.secondary} />
       </Pressable>
       <Modal

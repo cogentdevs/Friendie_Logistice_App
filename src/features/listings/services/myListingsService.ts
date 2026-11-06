@@ -44,7 +44,10 @@ export async function getMyListings(
 ): Promise<MyListingsPage> {
   ownStatusSchema.parse(status);
   z.number().int().positive().parse(page);
-  if (isUiPreviewActive()) {
+  if (
+    isUiPreviewActive() &&
+    useAuthStore.getState().status !== 'authenticated'
+  ) {
     const all = demoMyListings.map(item => myListingSchema.parse(item));
     const rows = all.filter(item => item.status === status),
       size = 10;

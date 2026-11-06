@@ -8,13 +8,11 @@ export function ProfileMenuRow({
   icon: Icon,
   onPress,
   disabled = false,
-  last = false,
 }: {
   label: string;
   icon: LucideIcon;
   onPress: () => void;
   disabled?: boolean;
-  last?: boolean;
 }) {
   return (
     <Pressable
@@ -26,7 +24,7 @@ export function ProfileMenuRow({
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
-        !last && styles.divider,
+        styles.divider,
         (pressed || disabled) && styles.inactive,
       ]}
     >

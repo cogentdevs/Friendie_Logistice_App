@@ -1,3 +1,17 @@
+import { MyReviewsScreen } from '../src/features/reviews/screens/MyReviewsScreen';
+import { DashboardStatCard } from '../src/features/dashboard/components/DashboardStatCard';
+import { LogoutConfirmationModal } from '../src/features/auth/components/LogoutConfirmationModal';
+import { AppButton } from '../src/components/ui/AppButton';
+import { DrawerItem } from '@react-navigation/drawer';
+import { DisclaimerScreen } from '../src/features/legal/screens/DisclaimerScreen';
+import { TermsConditionsScreen } from '../src/features/legal/screens/TermsConditionsScreen';
+import { PrivacyPolicyScreen } from '../src/features/legal/screens/PrivacyPolicyScreen';
+import { ContactSupportScreen } from '../src/features/support/screens/ContactSupportScreen';
+import { ProfileDashboardScreen } from '../src/features/dashboard/screens/ProfileDashboardScreen';
+import { CustomTabBar } from '../src/navigation/components/CustomTabBar';
+import { ProfileScreen } from '../src/features/profile/screens/ProfileScreen';
+import { ChangePasswordScreen } from '../src/features/settings/screens/ChangePasswordScreen';
+import { SettingsScreen } from '../src/features/settings/screens/SettingsScreen';
 import { ForgotPasswordScreen } from '../src/features/auth/screens/ForgotPasswordScreen';
 import { RegisterScreen } from '../src/features/auth/screens/RegisterScreen';
 import { useMyListingsTabs } from '../src/features/listings/store/myListingsStore';
@@ -46,7 +60,25 @@ async function mountGuest() {
 async function press(label: string) {
   const route = navigationRef.getCurrentRoute()?.name;
   const scope =
-    route === 'ForgotPassword'
+    route === 'MyReviews'
+      ? tree!.root.findByType(MyReviewsScreen)
+      : route === 'Disclaimer'
+      ? tree!.root.findByType(DisclaimerScreen)
+      : route === 'TermsConditions'
+      ? tree!.root.findByType(TermsConditionsScreen)
+      : route === 'PrivacyPolicy'
+      ? tree!.root.findByType(PrivacyPolicyScreen)
+      : route === 'ContactSupport'
+      ? tree!.root.findByType(ContactSupportScreen)
+      : route === 'ProfileDashboard'
+      ? tree!.root.findByType(ProfileDashboardScreen)
+      : route === 'Profile'
+      ? tree!.root.findByType(ProfileScreen)
+      : route === 'Settings'
+      ? tree!.root.findByType(SettingsScreen)
+      : route === 'ChangePassword'
+      ? tree!.root.findByType(ChangePasswordScreen)
+      : route === 'ForgotPassword'
       ? tree!.root.findByType(ForgotPasswordScreen)
       : route === 'Register'
       ? tree!.root.findByType(RegisterScreen)
@@ -183,6 +215,93 @@ test('protected navigation exposes tabs, nested Post routes, and drawer pages', 
   });
   await settle();
   expect(navigationRef.getCurrentRoute()?.name).toBe('SavedListings');
+  const drawerMenu = tree!.root; // Drawer invokes custom content as a render callback.
+  const drawerLabels = drawerMenu
+    .findAllByType(DrawerItem)
+    .map(item => item.props.label);
+  for (const label of ['Tracking', 'Notifications', 'Help & Support'])
+    expect(drawerLabels).not.toContain(label);
+  for (const [label, route, backLabel] of [
+    ['Contact Us', 'ContactSupport', 'Back from Contact Us'],
+    ['Privacy Policy', 'PrivacyPolicy', 'Back from Privacy Policy'],
+    ['Terms & Conditions', 'TermsConditions', 'Back from Terms & Conditions'],
+    ['Disclaimer', 'Disclaimer', 'Back from Disclaimer'],
+  ]) {
+    await Renderer.act(async () => {
+      drawerMenu
+        .findAllByType(DrawerItem)
+        .find(item => item.props.label === label)!
+        .props.onPress();
+    });
+    await settle();
+    expect(navigationRef.getCurrentRoute()?.name).toBe(route);
+    await press(backLabel);
+    expect(navigationRef.getCurrentRoute()?.name).toBe('SavedListings');
+  }
+
+  await Renderer.act(async () => {
+    navigationRef.navigate('AppDrawer', { screen: 'HelpSupport' });
+  });
+  await settle();
+  await press('Contact Us');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('ContactUs');
+  await press('Back from Contact Us');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('HelpSupport');
+  await Renderer.act(async () => {
+    navigationRef.navigate('AppDrawer', { screen: 'About' });
+  });
+  await settle();
+  expect(navigationRef.getCurrentRoute()?.name).toBe('About');
+  await press('Disclaimer');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('Disclaimer');
+  await press('Back from Disclaimer');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('About');
+  await press('Terms & Conditions');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('TermsConditions');
+  await press('Privacy Policy');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('PrivacyPolicy');
+  await press('Back from Privacy Policy');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('TermsConditions');
+  await press('Back from Terms & Conditions');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('About');
+  await press('Privacy Policy');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('PrivacyPolicy');
+  await press('Back from Privacy Policy');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('About');
+  await press('Contact Us');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('ContactUs');
+  const drawerLogout = () =>
+    tree!.root
+      .findAllByType(AppButton)
+      .find(node => node.props.title === 'Logout')!;
+  await Renderer.act(async () => {
+    drawerLogout().props.onPress();
+  });
+  await settle();
+  let logoutModal = tree!.root
+    .findAllByType(LogoutConfirmationModal)
+    .find(node => node.props.visible)!;
+  expect(logoutModal).toBeDefined();
+  await Renderer.act(async () => {
+    logoutModal.props.onCancel();
+  });
+  expect(useAuthStore.getState().status).toBe('authenticated');
+  queryClient.setQueryData(['drawer-private'], { private: true });
+  await Renderer.act(async () => {
+    drawerLogout().props.onPress();
+  });
+  await settle();
+  logoutModal = tree!.root
+    .findAllByType(LogoutConfirmationModal)
+    .find(node => node.props.visible)!;
+  await Renderer.act(async () => {
+    logoutModal.props.onConfirm();
+  });
+  await settle();
+  await settle();
+  expect(navigationRef.getCurrentRoute()?.name).toBe('Login');
+  expect(queryClient.getQueryData(['drawer-private'])).toBeUndefined();
+  expect(routeNames()).toEqual(['AuthStack']);
 });
 
 test('welcome Sign In replaces welcome with Login without exposing protected tabs', async () => {
@@ -367,15 +486,15 @@ test('Home dashboard uses the real first name and routes every action through ex
     query: 'Dubai to London',
   });
   await back();
-  await press('Search listings in Pakistan');
-  expect(navigationRef.getCurrentRoute()?.name).toBe('Search');
-  expect(useSearchStore.getState().filters).toEqual({
-    destination: 'Pakistan',
-  });
-  await back();
+  // Production no longer presents the static demo destination directory as enabled coverage.
+  expect(
+    home().findAll(
+      node => node.props.accessibilityLabel === 'Search listings in Pakistan',
+    ).length,
+  ).toBe(0);
   await press('View all locations');
-  expect(navigationRef.getCurrentRoute()?.name).toBe('Search');
-  expect(useSearchStore.getState().filters).toEqual({});
+  expect(navigationRef.getCurrentRoute()?.name).toBe('Home');
+  await press('Close directory');
 });
 
 test('direct Search entry hides Home tabs and hardware Back restores Home', async () => {
@@ -846,7 +965,6 @@ test('preview My Listings status filters and details Back preserve the selected 
 test('Profile preview menus, edit entry and confirmed Logout return to Login', async () => {
   const original = appConfig.uiPreviewEnabled;
   appConfig.uiPreviewEnabled = true;
-  const alert = jest.spyOn(Alert, 'alert');
   try {
     await mountGuest();
     await press('Sign In');
@@ -860,27 +978,83 @@ test('Profile preview menus, edit entry and confirmed Logout return to Login', a
           node.props.children === 'UI demo - sample profile and statistics',
       ).length,
     ).toBeGreaterThan(0);
+    await press('Dashboard');
+    expect(navigationRef.getCurrentRoute()?.name).toBe('ProfileDashboard');
+    await press('View All Visitor Reviews');
+    expect(navigationRef.getCurrentRoute()?.name).toBe('MyReviews');
+    await press('Your Reviews');
+    expect(
+      tree!.root
+        .findByType(MyReviewsScreen)
+        .findAll(
+          node =>
+            node.props.accessibilityRole === 'tab' &&
+            node.props.accessibilityLabel === 'Your Reviews',
+        )[0].props.accessibilityState.selected,
+    ).toBe(true);
+    await press('Back from My Reviews');
+    expect(navigationRef.getCurrentRoute()?.name).toBe('ProfileDashboard');
+    await Renderer.act(async () => {
+      tree!.root
+        .findByType(ProfileDashboardScreen)
+        .findAllByType(DashboardStatCard)
+        .find(node => node.props.label === 'Total Reviews')!
+        .props.onPress();
+    });
+    await settle();
+    expect(navigationRef.getCurrentRoute()?.name).toBe('MyReviews');
+    expect(
+      tree!.root
+        .findByType(MyReviewsScreen)
+        .findAll(
+          node =>
+            node.props.accessibilityRole === 'tab' &&
+            node.props.accessibilityLabel === 'Visitors Reviews',
+        )[0].props.accessibilityState.selected,
+    ).toBe(true);
+    await press('Back from My Reviews');
+    await press('Back to Profile');
+    await press('Messages');
+    expect(navigationRef.getCurrentRoute()?.name).toBe('Conversations');
+    await press('Profile');
+    for (const [label, route] of [
+      ['My Listing', 'MyListings'],
+      ['Reviews', 'MyReviews'],
+    ]) {
+      await press(label);
+      expect(navigationRef.getCurrentRoute()?.name).toBe(route);
+      await Renderer.act(async () => {
+        navigationRef.navigate('AppDrawer', {
+          screen: 'MainTabs',
+          params: { screen: 'ProfileStack', params: { screen: 'Profile' } },
+        });
+      });
+      await settle();
+    }
     await press('Edit Profile');
     expect(navigationRef.getCurrentRoute()?.name).toBe('EditProfile');
+    expect(
+      tree!.root
+        .findByType(CustomTabBar)
+        .findAll(node => node.props.accessibilityRole === 'tab').length,
+    ).toBe(0);
     await back();
-    await press('Payment Methods');
-    expect(alert).toHaveBeenCalledWith(
-      'Payment Methods unavailable',
-      expect.any(String),
-    );
+    expect(
+      tree!.root
+        .findByType(CustomTabBar)
+        .findAll(node => node.props.accessibilityRole === 'tab').length,
+    ).toBeGreaterThanOrEqual(5);
+    await press('Change Password');
+    expect(navigationRef.getCurrentRoute()?.name).toBe('ChangePassword');
+    await press('Back to Profile');
+    expect(navigationRef.getCurrentRoute()?.name).toBe('Profile');
     await press('Logout');
     expect(navigationRef.getCurrentRoute()?.name).toBe('Profile');
-    await Renderer.act(async () =>
-      alert.mock.calls.at(-1)![2]!.find(button => button.text === 'Cancel')!
-        .onPress!(),
-    );
+    await press('Cancel logout');
     expect(navigationRef.getCurrentRoute()?.name).toBe('Profile');
     queryClient.setQueryData(['private-profile-test'], { private: true });
     await press('Logout');
-    await Renderer.act(async () =>
-      alert.mock.calls.at(-1)![2]!.find(button => button.text === 'Logout')!
-        .onPress!(),
-    );
+    await press('Confirm logout');
     await settle();
     await settle();
     expect(navigationRef.getCurrentRoute()?.name).toBe('Login');
@@ -891,7 +1065,6 @@ test('Profile preview menus, edit entry and confirmed Logout return to Login', a
     expect(navigationRef.getCurrentRoute()?.name).toBe('Home');
   } finally {
     appConfig.uiPreviewEnabled = original;
-    alert.mockRestore();
   }
 }, 15000);
 
@@ -901,6 +1074,27 @@ test('Register opens from Sign In and returns through its existing auth stack', 
   await press('Register');
   await settle();
   expect(navigationRef.getCurrentRoute()?.name).toBe('Register');
+  await press('Terms & Conditions');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('TermsConditions');
+  await press('Back from Terms & Conditions');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('Register');
+  await Renderer.act(async () => {
+    tree!.root
+      .findByType(RegisterScreen)
+      .findAllByType(TextInput)
+      .find(node => node.props.accessibilityLabel === 'Full Name')!
+      .props.onChangeText('Draft Member');
+  });
+  await press('Privacy Policy');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('PrivacyPolicy');
+  await press('Back from Privacy Policy');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('Register');
+  expect(
+    tree!.root
+      .findByType(RegisterScreen)
+      .findAllByType(TextInput)
+      .find(node => node.props.accessibilityLabel === 'Full Name')!.props.value,
+  ).toBe('Draft Member');
   expect(
     tree!.root.findAll(node => node.props.children === 'Create Account').length,
   ).toBeGreaterThan(0);
@@ -939,3 +1133,55 @@ test('Forgot Password and labeled preview confirmation return to Login without e
     appConfig.uiPreviewEnabled = original;
   }
 });
+
+test('Profile Settings exposes Change Password and returns through the existing drawer', async () => {
+  const original = appConfig.uiPreviewEnabled;
+  appConfig.uiPreviewEnabled = true;
+  try {
+    await mountGuest();
+    await press('Sign In');
+    await press('Sign In');
+    await press('Profile');
+    await press('Profile Settings');
+    expect(navigationRef.getCurrentRoute()?.name).toBe('Settings');
+    await press('Privacy Policy');
+    expect(navigationRef.getCurrentRoute()?.name).toBe('PrivacyPolicy');
+    await press('Back from Privacy Policy');
+    expect(navigationRef.getCurrentRoute()?.name).toBe('Settings');
+    await press('Contact Us');
+    expect(navigationRef.getCurrentRoute()?.name).toBe('ContactSupport');
+    await press('Back from Contact Us');
+    expect(navigationRef.getCurrentRoute()?.name).toBe('Settings');
+    await press('Change Password');
+    expect(navigationRef.getCurrentRoute()?.name).toBe('ChangePassword');
+    await press('Back to Settings');
+    expect(navigationRef.getCurrentRoute()?.name).toBe('Settings');
+  } finally {
+    appConfig.uiPreviewEnabled = original;
+  }
+});
+
+test('guest disclaimer footer uses public legal/support routes and Back returns to the source', async () => {
+  await mountGuest();
+  await Renderer.act(async () => {
+    navigationRef.navigate('Disclaimer');
+  });
+  await settle();
+  expect(navigationRef.getCurrentRoute()?.name).toBe('Disclaimer');
+  await press('Contact Us');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('ContactSupport');
+  await press('Back from Contact Us');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('Disclaimer');
+  await press('Terms & Conditions');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('TermsConditions');
+  await press('Back from Terms & Conditions');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('Disclaimer');
+  await press('Privacy Policy');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('PrivacyPolicy');
+  await press('Back from Privacy Policy');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('Disclaimer');
+  expect(routeNames()).not.toContain('AppDrawer');
+  expect(useAuthStore.getState().status).toBe('guest');
+  await press('Back from Disclaimer');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('Welcome');
+}, 15000);

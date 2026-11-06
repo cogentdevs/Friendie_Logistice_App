@@ -11,11 +11,13 @@ import { useListingBookmarks } from '../src/features/listings/store/bookmarkStor
 import { useListingDraft } from '../src/features/post-listing/store/listingDraftStore';
 import { useChatDrafts } from '../src/features/messages/store/chatDraftStore';
 import { useSearchStore } from '../src/features/search/store/searchStore';
-let client: QueryClient, previous: { base: string; verified: boolean };
+let client: QueryClient,
+  previous: { base: string; verified: boolean; ui: boolean };
 beforeEach(() => {
   jest.clearAllMocks();
   previous = {
     base: appConfig.apiBaseUrl,
+    ui: appConfig.uiPreviewEnabled,
     verified: appConfig.authApiVerified,
   };
   appConfig.authApiVerified = false;
@@ -31,6 +33,7 @@ beforeEach(() => {
 afterEach(() => {
   client.clear();
   appConfig.apiBaseUrl = previous.base;
+  appConfig.uiPreviewEnabled = previous.ui;
   appConfig.authApiVerified = previous.verified;
   jest.restoreAllMocks();
 });
@@ -87,16 +90,40 @@ test('concurrent logout attempts share a single cleanup operation', async () => 
 });
 test('native reset failure with credentials still present is not treated as successful logout', async () => {
   jest.spyOn(Keychain, 'resetGenericPassword').mockResolvedValue(false);
-  jest
-    .spyOn(Keychain, 'getGenericPassword')
-    .mockResolvedValue({
-      service: 'test',
-      username: 'sanctum',
-      password: 'test-token',
-      storage: 'KeystoreAESGCM' as Keychain.STORAGE_TYPE,
-    } as Exclude<
-      Awaited<ReturnType<typeof Keychain.getGenericPassword>>,
-      false
-    >);
+  jest.spyOn(Keychain, 'getGenericPassword').mockResolvedValue({
+    service: 'test',
+    username: 'sanctum',
+    password: 'test-token',
+    storage: 'KeystoreAESGCM' as Keychain.STORAGE_TYPE,
+  } as Exclude<Awaited<ReturnType<typeof Keychain.getGenericPassword>>, false>);
   await expect(secureStorage.removeToken()).rejects.toThrow('Could not clear');
+});
+
+test('query cancellation failure cannot prevent credential and private-state cleanup', async () => {
+  jest
+    .spyOn(client, 'cancelQueries')
+    .mockRejectedValue(new Error('cancel failed'));
+  const remove = jest.spyOn(secureStorage, 'removeToken').mockResolvedValue();
+  client.setQueryData(['private'], { id: 8 });
+  await logoutSession(client);
+  expect(remove).toHaveBeenCalledTimes(1);
+  expect(useAuthStore.getState().status).toBe('guest');
+  expect(client.getQueryData(['private'])).toBeUndefined();
+});
+test('real authenticated session still attempts verified revocation when a preview flag is stale', async () => {
+  appConfig.apiBaseUrl = 'https://example.test';
+  appConfig.authApiVerified = true;
+  appConfig.uiPreviewEnabled = true;
+  useDevelopmentStore.setState({ previewActive: true });
+  const post = jest
+    .spyOn(apiClient, 'post')
+    .mockRejectedValue(new Error('offline'));
+  const remove = jest.spyOn(secureStorage, 'removeToken').mockResolvedValue();
+  client.setQueryData(['private'], { id: 8 });
+  await logoutSession(client);
+  expect(post).toHaveBeenCalledWith('/auth/logout');
+  expect(remove).toHaveBeenCalledTimes(1);
+  expect(client.getQueryData(['private'])).toBeUndefined();
+  expect(useAuthStore.getState().status).toBe('guest');
+  expect(useDevelopmentStore.getState().authEntryRequested).toBe(true);
 });

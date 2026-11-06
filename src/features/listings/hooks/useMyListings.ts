@@ -13,7 +13,7 @@ export function useMyListings() {
     preview = useDevelopmentStore(state => state.previewActive),
     owner = useAuthStore(state => state.user?.id),
     auth = useAuthStore(state => state.status);
-  const demo = preview && isUiPreviewActive(),
+  const demo = preview && isUiPreviewActive() && auth !== 'authenticated',
     scope = demo
       ? 'demo'
       : auth === 'authenticated' && owner

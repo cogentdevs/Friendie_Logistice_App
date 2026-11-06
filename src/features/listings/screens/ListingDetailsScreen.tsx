@@ -78,7 +78,7 @@ function DetailsContent({
 }: {
   navigation: Props['navigation'];
   id: string;
-  returnTo?: 'MyListings';
+  returnTo?: 'MyListings' | 'MyReviews';
 }) {
   const insets = useSafeAreaInsets();
   const focused = useIsFocused(),
@@ -123,8 +123,11 @@ function DetailsContent({
     }
   }, [detail, query.isFetching, toggle]);
   const back = useCallback(() => {
-    if (returnTo === 'MyListings' && navigationRef.isReady()) {
-      navigationRef.navigate('AppDrawer', { screen: 'MyListings' });
+    if (
+      (returnTo === 'MyListings' || returnTo === 'MyReviews') &&
+      navigationRef.isReady()
+    ) {
+      navigationRef.navigate('AppDrawer', { screen: returnTo });
       return;
     }
     if (navigation.canGoBack()) navigation.goBack();
@@ -136,7 +139,7 @@ function DetailsContent({
   }, [navigation, returnTo]);
   useFocusEffect(
     useCallback(() => {
-      if (returnTo !== 'MyListings') return;
+      if (returnTo !== 'MyListings' && returnTo !== 'MyReviews') return;
       const sub = BackHandler.addEventListener('hardwareBackPress', () => {
         back();
         return true;

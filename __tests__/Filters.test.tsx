@@ -137,13 +137,11 @@ test('header Reset restores explicit worldwide state and unchecked flags', async
   expect(useSearchStore.getState().filters.verifiedOnly).toBe(false);
 });
 test('GPS selection disables manual dropdowns and never displays precise coordinates', async () => {
-  jest
-    .spyOn(locationService, 'currentPosition')
-    .mockResolvedValue({
-      latitude: 24.812345,
-      longitude: 67.054321,
-      accuracyMeters: 6,
-    });
+  jest.spyOn(locationService, 'currentPosition').mockResolvedValue({
+    latitude: 24.812345,
+    longitude: 67.054321,
+    accuracyMeters: 6,
+  });
   await press('My Current Location');
   expect(button('Choose filter Country').props.disabled).toBe(true);
   expect(button('Apply Filters').props.disabled).toBe(false);
@@ -154,4 +152,21 @@ test('GPS selection disables manual dropdowns and never displays precise coordin
         node.props.children.includes('24.812345'),
     ),
   ).toHaveLength(0);
+});
+
+test('Home advanced filters return to Home without resetting keyword or route', async () => {
+  jest.spyOn(navigation, 'getState').mockReturnValue({
+    index: 1,
+    routes: [{ name: 'Home' }, { name: 'Filters' }],
+  });
+  useSearchStore
+    .getState()
+    .setFilters({ query: 'documents', category: 'kept-category' });
+  await press('Apply Filters');
+  expect(navigation.goBack).toHaveBeenCalledTimes(1);
+  expect(navigation.replace).not.toHaveBeenCalled();
+  expect(useSearchStore.getState().filters).toMatchObject({
+    query: 'documents',
+    category: 'kept-category',
+  });
 });

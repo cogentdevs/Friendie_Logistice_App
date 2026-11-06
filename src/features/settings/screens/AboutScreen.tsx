@@ -1,5 +1,2 @@
-import React from 'react';
-import { PlaceholderScreen } from '../../../components/common/PlaceholderScreen';
-export function AboutScreen() {
-  return <PlaceholderScreen title="About Friendie" />;
-}
+// Preserve the old import path for existing consumers.
+export { AboutScreen } from '../../about/screens/AboutScreen';

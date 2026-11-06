@@ -114,6 +114,18 @@ function Results({
   }, []);
   const chips: { key: string; label: string; remove: () => void }[] = [];
   const update = useSearchStore.getState().setFilters;
+  if (filters.destinationCountry)
+    chips.push({
+      key: 'destinationCountry',
+      label: filters.destinationCountry.name,
+      remove: () => update({ destinationCountry: undefined }),
+    });
+  if (filters.weightKg !== undefined)
+    chips.push({
+      key: 'weight',
+      label: filters.weightKg + ' kg',
+      remove: () => update({ weightKg: undefined }),
+    });
   if (filters.from || filters.to)
     chips.push({
       key: 'route',

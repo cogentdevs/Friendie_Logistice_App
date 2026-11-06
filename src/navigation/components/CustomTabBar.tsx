@@ -26,6 +26,11 @@ export function CustomTabBar({
   const previewActive = useDevelopmentStore(store => store.previewActive);
   const preview = previewActive && isUiPreviewActive();
   const active = state.routes[state.index];
+  if (
+    active.name === 'ProfileStack' &&
+    getFocusedRouteNameFromRoute(active) === 'EditProfile'
+  )
+    return null;
   if (!preview && active.name === 'PostListingStack') return null;
   if (
     !preview &&

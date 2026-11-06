@@ -56,7 +56,7 @@ export function FiltersScreen({ navigation }: Props) {
       navigation
         .getState()
         .routes.some(route =>
-          ['Search', 'Results', 'Listings'].includes(route.name),
+          ['Home', 'Search', 'Results', 'Listings'].includes(route.name),
         )
     )
       navigation.goBack();
@@ -86,7 +86,7 @@ export function FiltersScreen({ navigation }: Props) {
         const state = navigation.getState();
         if (
           state.routes.some(route =>
-            ['Search', 'Results', 'Listings'].includes(route.name),
+            ['Home', 'Search', 'Results', 'Listings'].includes(route.name),
           ) &&
           state.index > 0
         )

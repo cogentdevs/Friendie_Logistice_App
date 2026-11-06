@@ -1,3 +1,4 @@
+import { ContactUsScreen } from '../features/support/screens/ContactUsScreen';
 import React from 'react';
 import { createDrawerNavigator } from '@react-navigation/drawer';
 import { DrawerParamList } from './navigationTypes';
@@ -9,9 +10,10 @@ import { SavedListingsScreen } from '../features/saved/screens/SavedListingsScre
 import { MyReviewsScreen } from '../features/reviews/screens/MyReviewsScreen';
 import { NotificationsScreen } from '../features/notifications/screens/NotificationsScreen';
 import { TrackingScreen } from '../features/tracking/screens/TrackingScreen';
+import { ChangePasswordScreen } from '../features/settings/screens/ChangePasswordScreen';
 import { SettingsScreen } from '../features/settings/screens/SettingsScreen';
 import { HelpSupportScreen } from '../features/settings/screens/HelpSupportScreen';
-import { AboutScreen } from '../features/settings/screens/AboutScreen';
+import { AboutScreen } from '../features/about/screens/AboutScreen';
 const Drawer = createDrawerNavigator<DrawerParamList>();
 export function DrawerNavigator() {
   return (
@@ -43,7 +45,7 @@ export function DrawerNavigator() {
       <Drawer.Screen
         name="MyReviews"
         component={MyReviewsScreen}
-        options={{ title: 'My reviews' }}
+        options={{ headerShown: false }}
       />
       <Drawer.Screen
         name="Notifications"
@@ -58,7 +60,12 @@ export function DrawerNavigator() {
       <Drawer.Screen
         name="Settings"
         component={SettingsScreen}
-        options={{ title: 'Settings' }}
+        options={{ headerShown: false }}
+      />
+      <Drawer.Screen
+        name="ChangePassword"
+        component={ChangePasswordScreen}
+        options={{ headerShown: false, swipeEnabled: false }}
       />
       <Drawer.Screen
         name="HelpSupport"
@@ -66,9 +73,14 @@ export function DrawerNavigator() {
         options={{ title: 'Help & Support' }}
       />
       <Drawer.Screen
+        name="ContactUs"
+        component={ContactUsScreen}
+        options={{ headerShown: false, swipeEnabled: false }}
+      />
+      <Drawer.Screen
         name="About"
         component={AboutScreen}
-        options={{ title: 'About Friendie' }}
+        options={{ headerShown: false }}
       />
     </Drawer.Navigator>
   );

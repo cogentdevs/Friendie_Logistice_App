@@ -1,7 +1,6 @@
 import React, { useRef, useState } from 'react';
 import {
   Keyboard,
-  Linking,
   Pressable,
   StatusBar,
   StyleSheet,
@@ -11,7 +10,7 @@ import {
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
-import { useIsFocused } from '@react-navigation/native';
+import { CompositeScreenProps, useIsFocused } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   ArrowLeft,
@@ -22,7 +21,10 @@ import {
   Mail,
   UserRound,
 } from 'lucide-react-native';
-import { AuthStackParamList } from '../../../navigation/navigationTypes';
+import {
+  AuthStackParamList,
+  RootStackParamList,
+} from '../../../navigation/navigationTypes';
 import { SafeScreen } from '../../../components/layout/SafeScreen';
 import { KeyboardScreen } from '../../../components/layout/KeyboardScreen';
 import { ScreenContainer } from '../../../components/layout/ScreenContainer';
@@ -31,13 +33,15 @@ import { AppText } from '../../../components/ui/AppText';
 import { AppInput } from '../../../components/ui/AppInput';
 import { GradientButton } from '../../../components/ui/GradientButton';
 import { colors } from '../../../theme';
-import { appConfig } from '../../../constants/appConfig';
 import { ApiError } from '../../../types/api';
 import { registerSchema, RegisterValues } from '../schemas/registerSchema';
 import { registrationService } from '../services/registrationService';
 import { CallingCodeSelector } from '../components/CallingCodeSelector';
 
-type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
+type Props = CompositeScreenProps<
+  NativeStackScreenProps<AuthStackParamList, 'Register'>,
+  NativeStackScreenProps<RootStackParamList>
+>;
 const fields = [
   {
     name: 'fullName',
@@ -99,7 +103,6 @@ export function RegisterScreen({ navigation }: Props) {
     password: false,
     confirmPassword: false,
   });
-  const [legalError, setLegalError] = useState('');
   const [password, confirmation, consent, country] = form.watch([
     'password',
     'confirmPassword',
@@ -108,23 +111,10 @@ export function RegisterScreen({ navigation }: Props) {
   ]);
   const busy = form.formState.isSubmitting || register.isPending;
   const toLogin = () => navigation.popTo('Login');
-  const openLegal = async (kind: 'terms' | 'privacy') => {
-    setLegalError('');
-    const url = kind === 'terms' ? appConfig.termsUrl : appConfig.privacyUrl;
-    if (!/^https:\/\/[^\s/]+(?:\/[^\s]*)?$/i.test(url)) {
-      setLegalError(
-        `${
-          kind === 'terms' ? 'Terms & Conditions' : 'Privacy Policy'
-        } is not configured yet. Account creation is unavailable.`,
-      );
-      return;
-    }
-    try {
-      await Linking.openURL(url);
-    } catch {
-      setLegalError('Could not open the legal document. Please try again.');
-    }
-  };
+  const openLegal = (kind: 'terms' | 'privacy') =>
+    navigation.navigate(
+      kind === 'privacy' ? 'PrivacyPolicy' : 'TermsConditions',
+    );
   const submit = form.handleSubmit(async values => {
     if (submitting.current) return;
     submitting.current = true;
@@ -359,7 +349,7 @@ export function RegisterScreen({ navigation }: Props) {
                         accessibilityLabel="Terms & Conditions"
                         disabled={busy}
                         onPress={() => {
-                          openLegal('terms').catch(() => {});
+                          openLegal('terms');
                         }}
                         style={styles.legalLink}
                       >
@@ -374,7 +364,7 @@ export function RegisterScreen({ navigation }: Props) {
                         accessibilityLabel="Privacy Policy"
                         disabled={busy}
                         onPress={() => {
-                          openLegal('privacy').catch(() => {});
+                          openLegal('privacy');
                         }}
                         style={styles.legalLink}
                       >
@@ -396,16 +386,6 @@ export function RegisterScreen({ navigation }: Props) {
                 </View>
               )}
             />
-            {!!legalError && (
-              <AppText
-                accessibilityRole="alert"
-                accessibilityLiveRegion="polite"
-                color={colors.danger}
-                variant="caption"
-              >
-                {legalError}
-              </AppText>
-            )}
           </View>
           {form.formState.errors.root?.server?.message && (
             <AppText

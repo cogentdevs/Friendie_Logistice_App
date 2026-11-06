@@ -30,7 +30,7 @@ beforeEach(async () => {
       <QueryClientProvider client={client}>
         <RegisterScreen
           navigation={
-            { popTo: navigate } as unknown as React.ComponentProps<
+            { popTo: navigate, navigate } as unknown as React.ComponentProps<
               typeof RegisterScreen
             >['navigation']
           }
@@ -106,24 +106,17 @@ test('changing country revalidates phone and preserves unrelated fields', async 
     textPresent('Enter a valid mobile number for the selected country'),
   ).toBe(true);
 });
-test('configured legal documents open; absent and failed documents show inline feedback', async () => {
-  const open = jest.spyOn(Linking, 'openURL').mockResolvedValue();
+test('legal readers open without silently recording consent', async () => {
+  const open = jest.spyOn(Linking, 'openURL');
   await press('Terms & Conditions');
+  expect(navigate).toHaveBeenCalledWith('TermsConditions');
+  await press('Privacy Policy');
+  expect(navigate).toHaveBeenCalledWith('PrivacyPolicy');
   expect(open).not.toHaveBeenCalled();
   expect(
-    textPresent(
-      'Terms & Conditions is not configured yet. Account creation is unavailable.',
-    ),
-  ).toBe(true);
-  appConfig.termsUrl = 'https://example.test/terms';
-  await press('Terms & Conditions');
-  expect(open).toHaveBeenCalledWith(appConfig.termsUrl);
-  appConfig.privacyUrl = 'https://example.test/privacy';
-  open.mockRejectedValueOnce(new Error('failed'));
-  await press('Privacy Policy');
-  expect(
-    textPresent('Could not open the legal document. Please try again.'),
-  ).toBe(true);
+    button('I agree to the Terms & Conditions and Privacy Policy').props
+      .accessibilityState.checked,
+  ).toBe(false);
 });
 test('422 email and phone errors are inline; submission never fakes authentication', async () => {
   jest.spyOn(registrationService, 'register').mockRejectedValue(

@@ -49,7 +49,8 @@ export const authService = {
   },
   async logout() {
     if (
-      !isUiPreviewActive() &&
+      (useAuthStore.getState().status === 'authenticated' ||
+        !isUiPreviewActive()) &&
       appConfig.apiBaseUrl &&
       appConfig.authApiVerified
     ) {

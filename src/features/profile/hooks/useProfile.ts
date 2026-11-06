@@ -10,7 +10,10 @@ export function useProfile() {
   const focused = useIsFocused(),
     owner = useAuthStore(state => state.user?.id),
     preview = useDevelopmentStore(state => state.previewActive),
-    demo = preview && isUiPreviewActive();
+    demo =
+      preview &&
+      isUiPreviewActive() &&
+      useAuthStore.getState().status !== 'authenticated';
   const query = useQuery({
     queryKey: ['profile', demo ? 'demo' : owner ?? 'guest'],
     queryFn: ({ signal }) => getProfile(signal),

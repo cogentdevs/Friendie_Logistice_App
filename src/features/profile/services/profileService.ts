@@ -1,3 +1,4 @@
+import { routeLocationSchema } from '../../search/types/search';
 import { z } from 'zod';
 import { userSchema } from '../../auth/schemas/sessionSchema';
 import { isUiPreviewActive } from '../../../store/developmentStore';
@@ -8,6 +9,8 @@ import { endpoints } from '../../../services/api/endpoints';
 import { ApiError } from '../../../types/api';
 const count = z.number().int().nonnegative().nullable().optional();
 export const profileSchema = userSchema.extend({
+  phone: z.string().nullable().optional(),
+  location: routeLocationSchema.nullable().optional(),
   avatarUrl: z.string().url().nullable().optional(),
   verified: z.boolean().nullable().optional(),
   statistics: z
@@ -20,7 +23,7 @@ export const profileSchema = userSchema.extend({
 });
 export type Profile = z.infer<typeof profileSchema>;
 export async function getProfile(signal?: AbortSignal): Promise<Profile> {
-  if (isUiPreviewActive())
+  if (isUiPreviewActive() && useAuthStore.getState().status !== 'authenticated')
     return {
       id: 990015,
       name: 'Demo Traveller',

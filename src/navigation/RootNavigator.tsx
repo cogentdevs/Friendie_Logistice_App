@@ -1,3 +1,7 @@
+import { DisclaimerScreen } from '../features/legal/screens/DisclaimerScreen';
+import { ContactSupportScreen } from '../features/support/screens/ContactSupportScreen';
+import { TermsConditionsScreen } from '../features/legal/screens/TermsConditionsScreen';
+import { PrivacyPolicyScreen } from '../features/legal/screens/PrivacyPolicyScreen';
 import React from 'react';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -81,6 +85,13 @@ export function RootNavigator() {
         ) : (
           <Stack.Screen name="AuthStack" component={AuthNavigator} />
         )}
+        <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
+        <Stack.Screen
+          name="TermsConditions"
+          component={TermsConditionsScreen}
+        />
+        <Stack.Screen name="Disclaimer" component={DisclaimerScreen} />
+        <Stack.Screen name="ContactSupport" component={ContactSupportScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

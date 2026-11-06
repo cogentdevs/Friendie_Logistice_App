@@ -15,6 +15,7 @@ import {
   dateRangeSchema,
 } from '../../search/types/search';
 export const listingSchema = z.object({
+  coverImageUrl: z.string().url().nullable().optional(),
   id: z.number().int().positive(),
   type: z.enum(['send', 'carry']),
   title: z.string(),
@@ -105,6 +106,11 @@ export async function getListings(
   if (!appConfig.apiBaseUrl || !appConfig.listingsApiVerified)
     throw new ApiError(
       'Listing search is currently unavailable. Please try again later.',
+      'unknown',
+    );
+  if (filters.weightKg !== undefined || filters.destinationCountry)
+    throw new ApiError(
+      'Weight and country-ID search need a verified backend filter contract. These filters have not been sent.',
       'unknown',
     );
   const { data } = await apiClient.get<unknown>(endpoints.listings, {

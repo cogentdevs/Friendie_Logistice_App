@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { RouteLocation, DateRange } from '../types/search';
 export interface SearchFilters {
+  weightKg?: number;
+  destinationCountry?: { id: string | number; code: string; name: string };
   query?: string;
   verifiedOnly?: boolean;
   availableNow?: boolean;

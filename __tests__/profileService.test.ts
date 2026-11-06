@@ -67,3 +67,28 @@ test('sample statistics are available exclusively in labeled UI preview', async 
   });
   expect(get).not.toHaveBeenCalled();
 });
+
+test('an active real session never receives the demo profile even when preview flag remains set', async () => {
+  appConfig.uiPreviewEnabled = true;
+  appConfig.apiBaseUrl = 'https://example.test';
+  appConfig.profileApiVerified = true;
+  useDevelopmentStore.setState({ previewActive: true });
+  const get = jest
+    .spyOn(apiClient, 'get')
+    .mockResolvedValue({
+      data: {
+        data: {
+          id: 8,
+          name: 'Real Member',
+          email: 'member@example.test',
+          verified: false,
+        },
+      },
+    });
+  await expect(getProfile()).resolves.toMatchObject({
+    id: 8,
+    name: 'Real Member',
+    verified: false,
+  });
+  expect(get).toHaveBeenCalledTimes(1);
+});

@@ -193,3 +193,37 @@ Sign In -> Register opens the validated account form. Configure real TERMS_URL a
 ### Forgot Password
 
 Sign In -> Forgot Password opens the validated recovery form. Debug UI preview includes a clearly labeled confirmation preview. Real reset requests and reset-token links remain unavailable until the Laravel endpoint and approved HTTPS contract are verified. See docs/SCREEN_17_REPORT.md for security decisions, changed files and checks.
+
+### Edit Profile
+
+Profile -> avatar/name opens the prefilled editor. Development preview supports local camera/gallery drafts with an explicit preview limit; real Save/upload remain unavailable until verified update/upload contracts are supplied. See docs/SCREEN_18_REPORT.md for navigation, validation, permission handling and backend dependencies.
+
+### Change Password
+
+Profile -> Settings gear -> Change Password opens the secure password form. Real updates remain unavailable until the authenticated Laravel endpoint, password policy and session-revocation contract are verified. See docs/SCREEN_19_REPORT.md for session handling, changed files and validation.
+
+### Advanced Premium Home
+
+Home now includes the website-inspired hero, structured search, categories, destinations, latest-ad carousel and a single carrying promotion. Existing navigation and radius modes are preserved. New feeds are clearly labeled demo data in UI preview; production feeds and country/weight query mappings require verified backend contracts. See docs/ADVANCED_HOME_REPORT.md for files, navigation, APIs and validation.
+
+### Approved Profile dashboard
+
+Profile now has exactly Dashboard, Edit Profile, My Listing, Messages, Reviews, Change Password and Logout. The editor contains identity/contact fields and photo upload/remove previews with a 10 MB client limit; City/Area are omitted. Existing global features remain available. See docs/PROFILE_RESTRUCTURING_REPORT.md for current navigation, backend dependencies and checks (supersedes earlier Profile/Edit Profile descriptions).
+
+Profile > Dashboard now opens the dedicated account dashboard (not Home). Implementation, backend limitations and validation: [Profile Dashboard report](docs/PROFILE_DASHBOARD_REPORT.md).
+
+Contact Us is available directly from Drawer > Contact Us. Configuration and backend dependencies: [Screen 25 report](docs/SCREEN_25_REPORT.md).
+
+About Us is available from the existing drawer About entry. Draft copy, native version metadata and legal-link dependencies: [Screen 26 report](docs/SCREEN_26_REPORT.md).
+
+Privacy Policy opens from Drawer, About and Register in the existing root stack. The bundled outline is explicitly a draft until approved company policy is supplied: [Screen 27 report](docs/SCREEN_27_REPORT.md).
+
+Terms & Conditions opens from Drawer, About and Register using the shared legal reader. Content remains a draft pending approved Terms and backend consent/version rules: [Screen 28 report](docs/SCREEN_28_REPORT.md).
+
+Disclaimer is available from Drawer and About and links to Terms, Privacy and the shared public Contact Us form. Approved legal copy remains pending: [Screen 29 report](docs/SCREEN_29_REPORT.md).
+
+Account Settings is available from Drawer > Settings or Profile settings. Supported navigation and preference-source limitations: [Screen 30 report](docs/SCREEN_30_REPORT.md).
+
+Profile, Settings and Drawer share the premium auth-feature Log Out confirmation. Secure cleanup and validation details: [Screen 31 report](docs/SCREEN_31_REPORT.md).
+
+Profile and Dashboard share one two-tab Reviews screen. Backend findings, changed files and validation: [Reviews report](docs/REVIEWS_REPORT.md).

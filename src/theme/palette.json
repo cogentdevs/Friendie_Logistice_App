@@ -19,5 +19,6 @@
   "orange": "#FF823B",
   "burgundyDeep": "#760022",
   "successSoft": "#DCFCE7",
-  "successDark": "#166534"
+  "successDark": "#166534",
+  "modalOverlay": "#0D233E80"
 }
