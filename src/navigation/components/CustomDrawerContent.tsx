@@ -1,3 +1,5 @@
+import { requireAuth } from '../../features/auth/services/authFlowCoordinator';
+import { pendingActionSchema } from '../../features/auth/types/pendingAction.types';
 import { LogoutConfirmationModal } from '../../features/auth/components/LogoutConfirmationModal';
 import React from 'react';
 import { Alert, View, StyleSheet } from 'react-native';
@@ -41,7 +43,9 @@ const entries = [
   { name: 'Disclaimer', label: 'Disclaimer', icon: ShieldAlert },
 ];
 export function CustomDrawerContent(props: DrawerContentComponentProps) {
-  const user = useAuthStore(state => state.user);
+  const user = useAuthStore(state =>
+    state.status === 'authenticated' ? state.user : null,
+  );
   const previewActive = useDevelopmentStore(state => state.previewActive);
   const queryClient = useQueryClient();
   const [busy, setBusy] = React.useState(false);
@@ -69,12 +73,12 @@ export function CustomDrawerContent(props: DrawerContentComponentProps) {
     <DrawerContentScrollView {...props}>
       <View style={styles.identity}>
         <AppAvatar
-          name={user?.name ?? 'Navigation Preview'}
+          name={user?.name ?? (previewActive ? 'UI Preview' : 'Guest')}
           uri={user?.avatarUrl}
           size={64}
         />
         <AppText variant="headingMD" color={colors.navy}>
-          {user?.name ?? 'Navigation Preview'}
+          {user?.name ?? (previewActive ? 'UI Preview' : 'Guest')}
         </AppText>
         {user && (
           <AppBadge
@@ -96,6 +100,21 @@ export function CustomDrawerContent(props: DrawerContentComponentProps) {
           icon={({ color, size }) => <Icon color={color} size={size} />}
           onPress={() => {
             props.navigation.closeDrawer();
+            const protectedAction = pendingActionSchema.safeParse({
+              type: 'OPEN_ACCOUNT',
+              params: { destination: name },
+            });
+            if (protectedAction.success) {
+              requireAuth(protectedAction.data);
+              return;
+            }
+            if (name === 'MainTabs') {
+              props.navigation.navigate('MainTabs', {
+                screen: 'HomeStack',
+                params: { screen: 'Home' },
+              });
+              return;
+            }
             if (name === 'MyReviews')
               props.navigation.navigate('MyReviews', {
                 initialTab: 'visitors',
@@ -113,15 +132,17 @@ export function CustomDrawerContent(props: DrawerContentComponentProps) {
             onPress={() => useDevelopmentStore.getState().exitPreview()}
           />
         )}
-        <AppButton
-          title="Logout"
-          variant="secondary"
-          disabled={!user}
-          loading={busy}
-          onPress={() => {
-            if (!logoutFlight.current) setLogoutVisible(true);
-          }}
-        />
+        {user && (
+          <AppButton
+            title="Logout"
+            variant="secondary"
+            disabled={!user}
+            loading={busy}
+            onPress={() => {
+              if (!logoutFlight.current) setLogoutVisible(true);
+            }}
+          />
+        )}
         {error && <AppText variant="caption">{error}</AppText>}
       </View>
       <LogoutConfirmationModal

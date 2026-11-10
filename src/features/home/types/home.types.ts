@@ -16,5 +16,6 @@ export type CollectionQuery<T> = {
   data?: T[];
   isPending: boolean;
   isError: boolean;
+  error?: unknown;
   refetch: () => Promise<unknown>;
 };

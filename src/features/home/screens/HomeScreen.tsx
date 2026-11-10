@@ -1,3 +1,4 @@
+import { requireAuth } from '../../auth/services/authFlowCoordinator';
 import React, { useState } from 'react';
 import {
   Keyboard,
@@ -58,7 +59,7 @@ export function HomeScreen({ navigation }: Props) {
       ? data.summary.data
       : undefined) ?? user;
   const name =
-    identity?.name.trim() || (data.demo ? homeDevelopmentUser.name : '');
+    identity?.name.trim() || (data.preview ? homeDevelopmentUser.name : '');
   const openResults = (filters: SearchFilters = {}) => {
     Keyboard.dismiss();
     useSearchStore.getState().resetRoute();
@@ -66,7 +67,7 @@ export function HomeScreen({ navigation }: Props) {
     navigation.navigate('Results');
   };
   const carry = () =>
-    navigation.navigate('PostListingStack', { screen: 'CarryParcel' });
+    requireAuth({ type: 'POST_LISTING', params: { listingType: 'carry' } });
   const refresh = async () => {
     if (refreshing) return;
     setRefreshing(true);
@@ -97,21 +98,34 @@ export function HomeScreen({ navigation }: Props) {
         >
           <HomeHeader
             onDrawer={() => navigation.openDrawer()}
-            onNotifications={() => navigation.navigate('Notifications')}
+            onNotifications={() =>
+              requireAuth({
+                type: 'OPEN_ACCOUNT',
+                params: { destination: 'Notifications' },
+              })
+            }
             unread={data.unread.isError ? undefined : data.unread.data}
           />
           <WelcomeHero
             name={name}
             avatar={identity?.avatarUrl ?? undefined}
-            preview={data.demo}
+            preview={data.preview}
             onProfile={() =>
               navigation.navigate('ProfileStack', { screen: 'Profile' })
             }
-            onMyListings={() => navigation.navigate('MyListings')}
+            onMyListings={() =>
+              requireAuth({
+                type: 'OPEN_ACCOUNT',
+                params: { destination: 'MyListings' },
+              })
+            }
           />
           <ParcelActionCards
             onSend={() =>
-              navigation.navigate('PostListingStack', { screen: 'SendParcel' })
+              requireAuth({
+                type: 'POST_LISTING',
+                params: { listingType: 'send' },
+              })
             }
             onCarry={carry}
           />
@@ -128,11 +142,19 @@ export function HomeScreen({ navigation }: Props) {
             onListings={() =>
               navigation.navigate('ListingsStack', { screen: 'Listings' })
             }
-            onSaved={() => navigation.navigate('SavedListings')}
-            onMessages={() =>
-              navigation.navigate('MessagesStack', { screen: 'Conversations' })
+            onSaved={() =>
+              requireAuth({
+                type: 'OPEN_ACCOUNT',
+                params: { destination: 'SavedListings' },
+              })
             }
-            onReviews={() => navigation.navigate('MyReviews')}
+            onMessages={() => requireAuth({ type: 'OPEN_MESSAGES' })}
+            onReviews={() =>
+              requireAuth({
+                type: 'OPEN_ACCOUNT',
+                params: { destination: 'MyReviews' },
+              })
+            }
           />
           {data.demo && (
             <AppText variant="caption" color={colors.primary}>

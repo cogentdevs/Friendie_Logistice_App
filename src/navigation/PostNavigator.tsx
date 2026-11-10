@@ -1,3 +1,4 @@
+import { withAccountAccess } from './components/AccountAccessBoundary';
 import { PostListingScreen } from '../features/post-listing/screens/PostListingScreen';
 import { ListingReviewScreen } from '../features/post-listing/screens/ListingReviewScreen';
 import React from 'react';
@@ -10,7 +11,7 @@ import {
   CarryParcelScreen,
 } from '../features/post-listing/screens/PostScreens';
 const Stack = createNativeStackNavigator<PostStackParamList>();
-export function PostNavigator() {
+function PostNavigatorContent() {
   return (
     <Stack.Navigator
       screenOptions={({ navigation }) => ({
@@ -41,3 +42,22 @@ export function PostNavigator() {
     </Stack.Navigator>
   );
 }
+
+export const PostNavigator = withAccountAccess(
+  PostNavigatorContent,
+  (props: {
+    route: {
+      params?: { screen?: string; params?: { type?: 'send' | 'carry' } };
+    };
+  }) => ({
+    type: 'POST_LISTING',
+    params: {
+      listingType:
+        props.route.params?.screen === 'SendParcel'
+          ? 'send'
+          : props.route.params?.screen === 'CarryParcel'
+          ? 'carry'
+          : props.route.params?.params?.type,
+    },
+  }),
+);

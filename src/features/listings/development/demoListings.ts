@@ -3,14 +3,9 @@ import type { Listing } from '../services/listingsService';
 import type { ListingDetail } from '../services/listingDetailsService';
 import type { SearchFilters } from '../../search/store/searchStore';
 import type { LocationSelection } from '../../location/types/location';
-import { appConfig } from '../../../constants/appConfig';
-import { useDevelopmentStore } from '../../../store/developmentStore';
+import { isStaticMarketplaceEnabled } from './staticMarketplace';
 export function isListingDemoMode() {
-  return (
-    __DEV__ &&
-    appConfig.uiPreviewEnabled &&
-    useDevelopmentStore.getState().previewActive
-  );
+  return isStaticMarketplaceEnabled();
 }
 const names = [
   'Ali Raza',

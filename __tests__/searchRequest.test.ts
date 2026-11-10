@@ -87,3 +87,12 @@ test('unverified listing contract sends no network request', async () => {
     appConfig.listingsApiVerified = old;
   }
 });
+
+// These cases exercise the non-fixture API contract, not the development catalogue.
+const originalStaticMarketplace = appConfig.staticMarketplaceEnabled;
+beforeEach(() => {
+  appConfig.staticMarketplaceEnabled = false;
+});
+afterEach(() => {
+  appConfig.staticMarketplaceEnabled = originalStaticMarketplace;
+});

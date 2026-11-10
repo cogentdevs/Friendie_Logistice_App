@@ -7,20 +7,24 @@ import { apiClient } from '../src/services/api/apiClient';
 import { getListings } from '../src/features/listings/services/listingsService';
 import { routeFixture } from '../test/fixtures/search';
 const original = appConfig.uiPreviewEnabled;
+const originalStatic = appConfig.staticMarketplaceEnabled;
 beforeEach(() => {
   appConfig.uiPreviewEnabled = true;
+  appConfig.staticMarketplaceEnabled = true;
   useDevelopmentStore.setState({ previewActive: false });
   useAuthStore.getState().clear();
 });
 afterEach(() => {
   appConfig.uiPreviewEnabled = original;
+  appConfig.staticMarketplaceEnabled = originalStatic;
   jest.restoreAllMocks();
 });
-test('new Home feeds do not use guessed production endpoints or invented catalogues', async () => {
+test('disabled static feeds never guess production endpoints', async () => {
+  appConfig.staticMarketplaceEnabled = false;
   const get = jest.spyOn(apiClient, 'get');
-  await expect(homeService.categories()).rejects.toThrow('unavailable');
-  await expect(homeService.destinations()).rejects.toThrow('unavailable');
-  await expect(homeService.latest()).rejects.toThrow('unavailable');
+  await expect(homeService.categories()).rejects.toThrow('disabled');
+  await expect(homeService.destinations()).rejects.toThrow('disabled');
+  await expect(homeService.latest()).rejects.toThrow('disabled');
   await expect(homeService.unread()).rejects.toThrow('unavailable');
   expect(get).not.toHaveBeenCalled();
 });
@@ -36,6 +40,7 @@ test('development-only sections include reference categories/destinations and a 
     'BH',
     'PK',
     'IN',
+    'GB',
   ]);
   expect(await homeService.latest()).toHaveLength(3);
 });
@@ -71,10 +76,12 @@ test('route and optional weight/date validation reject invalid search values', (
 });
 test('country and weight constraints cannot be silently sent to an unverified serializer contract', async () => {
   const config = {
+    staticMarketplaceEnabled: appConfig.staticMarketplaceEnabled,
     apiBaseUrl: appConfig.apiBaseUrl,
     listingsApiVerified: appConfig.listingsApiVerified,
   };
   Object.assign(appConfig, {
+    staticMarketplaceEnabled: false,
     apiBaseUrl: 'https://example.test',
     listingsApiVerified: true,
   });

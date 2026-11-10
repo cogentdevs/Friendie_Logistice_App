@@ -3,6 +3,10 @@ import { ApiError, ApiErrorKind } from '../../types/api';
 import { secureStorage } from '../storage/secureStorage';
 import { useAuthStore } from '../../store/authStore';
 export function installInterceptors(client: AxiosInstance) {
+  const owners = new WeakMap<
+    object,
+    ReturnType<typeof useAuthStore.getState>['user']
+  >();
   client.interceptors.request.use(async config => {
     if (!config.baseURL)
       throw new ApiError(
@@ -11,6 +15,7 @@ export function installInterceptors(client: AxiosInstance) {
       );
     const token = await secureStorage.getToken();
     if (token) config.headers.Authorization = 'Bearer ' + token;
+    owners.set(config, useAuthStore.getState().user);
     return config;
   });
   client.interceptors.response.use(
@@ -20,12 +25,22 @@ export function installInterceptors(client: AxiosInstance) {
       if (axios.isCancel(error))
         throw new ApiError('Request cancelled.', 'cancelled');
       const status = error.response?.status;
-      if (status === 401) {
-        try {
-          await secureStorage.removeToken();
-        } finally {
-          useAuthStore.getState().clear();
-        }
+      const config = error.config;
+      const authorization = config?.headers?.Authorization;
+      if (
+        status === 401 &&
+        config &&
+        typeof authorization === 'string' &&
+        authorization.startsWith('Bearer ')
+      ) {
+        const owner = owners.get(config);
+        const isCurrent = () =>
+          owners.has(config) && useAuthStore.getState().user === owner;
+        const removed = await secureStorage.removeTokenIfCurrent(
+          authorization.slice(7),
+          isCurrent,
+        );
+        if (removed && isCurrent()) useAuthStore.getState().clear();
       }
       const kinds: Record<number, ApiErrorKind> = {
         401: 'unauthorized',

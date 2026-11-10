@@ -1,4 +1,6 @@
-import React, { useRef, useState } from 'react';
+import { useAuthFlowStore } from '../store/authFlowStore';
+import { cancelAuthentication } from '../services/authFlowCoordinator';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Keyboard,
   Pressable,
@@ -23,14 +25,21 @@ import { colors, spacing } from '../../../theme';
 import { ApiError } from '../../../types/api';
 import { useLoginForm } from '../hooks/useLoginForm';
 import { useLogin } from '../hooks/useAuth';
-import { appConfig } from '../../../constants/appConfig';
+import { appConfig, isUiPreviewAllowed } from '../../../constants/appConfig';
+import { uiTestingLogin } from '../development/uiTestingLogin';
 import { useDevelopmentStore } from '../../../store/developmentStore';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 export function LoginScreen({ navigation }: Props) {
   const focused = useIsFocused();
   const form = useLoginForm();
-  const login = useLogin();
+  const controller = useRef(new AbortController());
+  useEffect(() => {
+    const attempt = controller.current;
+    return () => attempt.abort();
+  }, []);
+  const guarded = useAuthFlowStore(state => !!state.flow);
+  const login = useLogin(controller.current.signal);
   const passwordRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const submitting = useRef(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -42,8 +51,9 @@ export function LoginScreen({ navigation }: Props) {
     form.clearErrors();
     try {
       await login.mutateAsync(values);
-      // The root navigator opens the app only after token storage and profile validation.
+      // The central coordinator resumes only after token storage and profile validation.
     } catch (error) {
+      if (controller.current.signal.aborted) return;
       const message =
         error instanceof ApiError
           ? error.message
@@ -64,14 +74,22 @@ export function LoginScreen({ navigation }: Props) {
       submitting.current = false;
     }
   });
-  const submit = () => {
-    if (__DEV__ && appConfig.uiPreviewEnabled) {
-      Keyboard.dismiss();
-      useDevelopmentStore.getState().enterPreview();
+  const openTestingPreview = form.handleSubmit(values => {
+    Keyboard.dismiss();
+    form.clearErrors('root');
+    if (
+      values.email.trim().toLowerCase() !== uiTestingLogin.email ||
+      values.password !== uiTestingLogin.password
+    ) {
+      form.setError('root.server', {
+        message: 'Incorrect UI testing email or password.',
+      });
       return;
     }
-    return authenticate();
-  };
+    useDevelopmentStore.getState().enterPreview();
+  });
+  const submit = () =>
+    isUiPreviewAllowed() && !guarded ? openTestingPreview() : authenticate();
   const EyeIcon = showPassword ? EyeOff : Eye;
   return (
     <SafeScreen
@@ -81,6 +99,20 @@ export function LoginScreen({ navigation }: Props) {
       {focused && <StatusBar barStyle="dark-content" />}
       <KeyboardScreen>
         <ScreenContainer backgroundColor={colors.white} style={styles.content}>
+          {guarded && (
+            <Pressable
+              cssInterop={false}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel sign in"
+              style={styles.forgot}
+              onPress={() => {
+                cancelAuthentication();
+                navigation.getParent()?.goBack();
+              }}
+            >
+              <AppText color={colors.primary}>Cancel</AppText>
+            </Pressable>
+          )}
           <View style={styles.brand}>
             <BrandLogo width={170} variant="color" />
           </View>
@@ -96,9 +128,10 @@ export function LoginScreen({ navigation }: Props) {
               Welcome back! Please sign in to your account.
             </AppText>
           </View>
-          {appConfig.uiPreviewEnabled && (
+          {appConfig.uiPreviewEnabled && !guarded && (
             <AppText variant="caption" color={colors.primary}>
-              UI preview: tap Sign In to explore. No account required.
+              UI testing: sign in with the supplied demo credentials. No real
+              account is created.
             </AppText>
           )}
           <View style={styles.form}>

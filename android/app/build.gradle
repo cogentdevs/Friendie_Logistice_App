@@ -76,7 +76,7 @@ def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 // The override is useful for machines with a long user temporary-directory path.
 def windowsHost = System.getProperty('os.name').toLowerCase().contains('windows')
 def friendieCxxRoot = project.findProperty('FRIENDIE_CXX_ROOT') ?: (windowsHost
-    ? new File(System.getProperty('java.io.tmpdir'), 'flcxx-' + Integer.toHexString(rootDir.absolutePath.hashCode())).absolutePath
+    ? new File(System.getenv('SystemDrive') + File.separator, 'flcxx-' + Integer.toHexString(rootDir.absolutePath.hashCode())).absolutePath
     : null)
 
 android {
@@ -84,6 +84,7 @@ android {
         externalNativeBuild {
             cmake {
                 buildStagingDirectory file(friendieCxxRoot)
+
             }
         }
     }
@@ -93,6 +94,14 @@ android {
 
     namespace "com.friendie_logistics_app"
     defaultConfig {
+        if (windowsHost) {
+            externalNativeBuild {
+                cmake {
+                    // Hash long codegen paths before Ninja reaches MAX_PATH.
+                    arguments "-DCMAKE_OBJECT_PATH_MAX=240"
+                }
+            }
+        }
         applicationId "com.friendie_logistics_app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion

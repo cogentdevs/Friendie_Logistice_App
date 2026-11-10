@@ -1,3 +1,6 @@
+import { RequestConfirmationDialog } from '../src/features/listings/components/RequestConfirmationDialog';
+import * as authFlow from '../src/features/auth/services/authFlowCoordinator';
+import { apiClient } from '../src/services/api/apiClient';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ListingsStackParamList } from '../src/navigation/navigationTypes';
 import React from 'react';
@@ -168,12 +171,11 @@ test('fetches actual route ID and displays fee, units, verified identity and dis
   expect(
     tree.root.findAll(
       node =>
-        node.props.accessibilityLabel === 'Request Now' &&
-        node.props.disabled === true,
+        node.props.accessibilityLabel === 'Request Now' && !node.props.disabled,
     ).length,
   ).toBeGreaterThan(0);
 });
-test('permitted phone opens dialer only after confirmation and message uses supplied conversation ID', async () => {
+test('login and callPermitted alone never open dialer; message uses supplied conversation ID', async () => {
   jest.spyOn(service, 'getListingDetails').mockResolvedValue(fixture);
   const alert = jest.spyOn(Alert, 'alert');
   const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
@@ -184,12 +186,8 @@ test('permitted phone opens dialer only after confirmation and message uses supp
   await mount();
   await press('Call traveller');
   expect(open).not.toHaveBeenCalled();
-  await Renderer.act(async () => {
-    await alert.mock.calls
-      .at(-1)![2]!
-      .find(action => action.text === 'Open dialer')!.onPress!();
-  });
-  expect(open).toHaveBeenCalledWith('tel:+923001234567');
+  expect(service.permittedPhone(fixture)).toBeUndefined();
+  expect(alert).not.toHaveBeenCalled();
   await press('Message traveller');
   expect(navigate).toHaveBeenCalledWith('AppDrawer', {
     screen: 'MainTabs',
@@ -213,7 +211,7 @@ test('guest contact is auth-blocked and image errors use neutral fallback', asyn
   const open = jest.spyOn(Linking, 'openURL');
   await mount();
   await press('Call traveller');
-  expect(alert).toHaveBeenCalledWith('Sign in required', expect.any(String));
+  expect(alert).not.toHaveBeenCalled();
   expect(open).not.toHaveBeenCalled();
   await Renderer.act(async () => {
     tree.root
@@ -315,4 +313,129 @@ test('details opened from a review return to the existing Reviews route without 
     nav.setOptions.mock.calls.at(-1)![0].headerLeft().props.onPress();
   });
   expect(navigate).toHaveBeenCalledWith('AppDrawer', { screen: 'MyReviews' });
+});
+
+test('guest Request Now delegates listing ID to existing guard without exposing contact', async () => {
+  useAuthStore.getState().clear();
+  const guard = jest.spyOn(authFlow, 'requireAuth').mockReturnValue(true);
+  jest.spyOn(service, 'getListingDetails').mockResolvedValue(fixture);
+  await mount();
+  await press('Request Now');
+  expect(guard).toHaveBeenCalledWith({
+    type: 'REQUEST_LISTING',
+    params: { listingId: '12' },
+  });
+  expect(tree.root.findByType(RequestConfirmationDialog).props.visible).toBe(
+    false,
+  );
+  expect(JSON.stringify(tree.toJSON())).not.toContain('+92 300 1234567');
+});
+test('authenticated review revalidates once on rapid taps and never fabricates submission', async () => {
+  let finish!: (detail: service.ListingDetail) => void;
+  const get = jest
+    .spyOn(service, 'getListingDetails')
+    .mockResolvedValueOnce(fixture)
+    .mockImplementation(
+      () =>
+        new Promise(resolve => {
+          finish = resolve;
+        }),
+    );
+  const post = jest.spyOn(apiClient, 'post');
+  await mount();
+  await Renderer.act(async () => {
+    const action = tree.root.findAll(
+      node =>
+        node.props.accessibilityLabel === 'Request Now' &&
+        typeof node.props.onPress === 'function',
+    )[0];
+    action.props.onPress();
+    action.props.onPress();
+  });
+  expect(get).toHaveBeenCalledTimes(2);
+  await Renderer.act(async () => {
+    finish(fixture);
+  });
+  await settle();
+  expect(tree.root.findByType(RequestConfirmationDialog).props.visible).toBe(
+    true,
+  );
+  expect(
+    tree.root.findAll(
+      node =>
+        node.props.accessibilityLabel === 'Send Request' &&
+        node.props.disabled === true,
+    ).length,
+  ).toBeGreaterThan(0);
+  expect(post).not.toHaveBeenCalled();
+  await press('Cancel request');
+  expect(tree.root.findByType(RequestConfirmationDialog).props.visible).toBe(
+    false,
+  );
+});
+test('own listing has management action and no self-request CTA', async () => {
+  jest
+    .spyOn(service, 'getListingDetails')
+    .mockResolvedValue({ ...fixture, ownerId: 88 });
+  await mount();
+  expect(
+    tree.root.findAll(node => node.props.accessibilityLabel === 'Request Now'),
+  ).toHaveLength(0);
+  expect(
+    tree.root.findAll(
+      node => node.props.accessibilityLabel === 'Manage Listing',
+    ).length,
+  ).toBeGreaterThan(0);
+});
+test('availability change during revalidation blocks confirmation', async () => {
+  jest
+    .spyOn(service, 'getListingDetails')
+    .mockResolvedValueOnce(fixture)
+    .mockResolvedValue({ ...fixture, status: 'expired' });
+  await mount();
+  await press('Request Now');
+  expect(tree.root.findByType(RequestConfirmationDialog).props.visible).toBe(
+    false,
+  );
+  expect(
+    tree.root.findAll(
+      node => node.props.children === 'This listing has expired.',
+    ).length,
+  ).toBeGreaterThan(0);
+});
+test('session expiry during revalidation cannot reopen confirmation', async () => {
+  let finish!: (detail: service.ListingDetail) => void;
+  jest
+    .spyOn(service, 'getListingDetails')
+    .mockResolvedValueOnce(fixture)
+    .mockImplementation(
+      () =>
+        new Promise(resolve => {
+          finish = resolve;
+        }),
+    );
+  await mount();
+  await press('Request Now');
+  await Renderer.act(async () => {
+    useAuthStore.getState().clear();
+    finish(fixture);
+  });
+  await settle();
+  expect(tree.root.findByType(RequestConfirmationDialog).props.visible).toBe(
+    false,
+  );
+});
+
+test('offline revalidation keeps confirmation closed and never submits', async () => {
+  jest
+    .spyOn(service, 'getListingDetails')
+    .mockResolvedValueOnce(fixture)
+    .mockRejectedValue(new Error('Offline'));
+  const post = jest.spyOn(apiClient, 'post');
+  await mount();
+  await press('Request Now');
+  expect(tree.root.findByType(RequestConfirmationDialog).props.visible).toBe(
+    false,
+  );
+  expect(post).not.toHaveBeenCalled();
 });

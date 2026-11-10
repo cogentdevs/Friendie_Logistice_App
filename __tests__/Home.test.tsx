@@ -1,5 +1,10 @@
+import * as authFlow from '../src/features/auth/services/authFlowCoordinator';
+import {
+  clearAuthFlow,
+  useAuthFlowStore,
+} from '../src/features/auth/store/authFlowStore';
 import React from 'react';
-import { Alert, Image, RefreshControl, TextInput } from 'react-native';
+import { Image, RefreshControl, TextInput } from 'react-native';
 import Renderer, { ReactTestRenderer } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { HomeScreen } from '../src/features/home/screens/HomeScreen';
@@ -22,6 +27,7 @@ jest.mock('@react-navigation/native', () => ({
 let tree: ReactTestRenderer, client: QueryClient;
 const nav = { navigate: jest.fn(), openDrawer: jest.fn() };
 const original = appConfig.uiPreviewEnabled;
+const originalStatic = appConfig.staticMarketplaceEnabled;
 async function settle() {
   await Renderer.act(async () => {
     await new Promise<void>(resolve => setTimeout(resolve, 25));
@@ -51,8 +57,10 @@ async function mount() {
   await settle();
 }
 beforeEach(() => {
+  clearAuthFlow();
   jest.clearAllMocks();
   appConfig.uiPreviewEnabled = true;
+  appConfig.staticMarketplaceEnabled = true;
   useDevelopmentStore.setState({
     previewActive: true,
     authEntryRequested: false,
@@ -69,6 +77,7 @@ afterEach(async () => {
   });
   jest.restoreAllMocks();
   appConfig.uiPreviewEnabled = original;
+  appConfig.staticMarketplaceEnabled = originalStatic;
 });
 const input = (label: string) =>
   tree.root
@@ -89,6 +98,7 @@ async function press(label: string) {
   await settle();
 }
 test('all sections render and existing drawer, quick actions and parcel flows remain functional', async () => {
+  const guard = jest.spyOn(authFlow, 'requireAuth').mockReturnValue(true);
   await mount();
   for (const heading of [
     'Our Categories',
@@ -111,15 +121,15 @@ test('all sections render and existing drawer, quick actions and parcel flows re
     'Open Reviews',
   ])
     await press(label);
-  expect(nav.navigate).toHaveBeenCalledWith('PostListingStack', {
-    screen: 'SendParcel',
+  expect(guard).toHaveBeenCalledWith({
+    type: 'POST_LISTING',
+    params: { listingType: 'send' },
   });
-  expect(nav.navigate).toHaveBeenCalledWith('MessagesStack', {
-    screen: 'Conversations',
-  });
+  expect(guard).toHaveBeenCalledWith({ type: 'OPEN_MESSAGES' });
   await press('Post Your Ad');
-  expect(nav.navigate).toHaveBeenLastCalledWith('PostListingStack', {
-    screen: 'CarryParcel',
+  expect(guard).toHaveBeenLastCalledWith({
+    type: 'POST_LISTING',
+    params: { listingType: 'carry' },
   });
   await press('Browse Ads');
   expect(nav.navigate).toHaveBeenLastCalledWith('Results');
@@ -223,13 +233,11 @@ test('View All actions, bounded latest details and unauthenticated save entry wo
   expect(nav.navigate).toHaveBeenLastCalledWith('ListingDetails', {
     listingId: '900001',
   });
-  const alert = jest.spyOn(Alert, 'alert');
   await press('Save listing 900001 on this device');
-  expect(alert.mock.calls.at(-1)?.[0]).toBe('Sign in required');
-  await Renderer.act(async () => {
-    alert.mock.calls.at(-1)![2]!.find(b => b.text === 'Sign In')!.onPress!();
+  expect(useAuthFlowStore.getState().flow?.action).toEqual({
+    type: 'SAVE_LISTING',
+    params: { listingId: '900001' },
   });
-  expect(useDevelopmentStore.getState().authEntryRequested).toBe(true);
 });
 test('real signed-in local bookmark toggle works and does not claim server persistence', async () => {
   const ads = await homeService.latest();
@@ -342,4 +350,34 @@ test('keyword submission uses the same validated results flow and preserves adva
   expect(input('Search listings, routes or locations').props.value).toBe(
     'updated on results',
   );
+});
+
+test.each(['guest', 'authenticated'])(
+  'public Home cards render for %s with login preview disabled',
+  async status => {
+    appConfig.uiPreviewEnabled = false;
+    useDevelopmentStore.setState({ previewActive: false });
+    if (status === 'authenticated')
+      useAuthStore
+        .getState()
+        .setUser({ id: 81, name: 'Member', email: 'member@example.test' });
+    const identity = useAuthStore.getState();
+    await mount();
+    expect(button('Browse category Food Items')).toBeDefined();
+    for (const country of ['UAE', 'Saudi Arabia', 'Pakistan', 'United Kingdom'])
+      expect(button('Search listings in ' + country)).toBeDefined();
+    expect(button('Open listing Traveller to Dubai')).toBeDefined();
+    expect(present('Development preview')).toBe(false);
+    expect(useAuthStore.getState()).toBe(identity);
+  },
+);
+test('disabled fixtures explain the build state without network text or retry', async () => {
+  appConfig.staticMarketplaceEnabled = false;
+  await mount();
+  expect(present('Static marketplace content is disabled in this build.')).toBe(
+    true,
+  );
+  expect(button('Retry Categories')).toBeUndefined();
+  expect(button('Retry Destinations')).toBeUndefined();
+  expect(button('Retry Latest ads')).toBeUndefined();
 });

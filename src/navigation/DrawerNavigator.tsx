@@ -1,3 +1,4 @@
+import { withAccountAccess } from './components/AccountAccessBoundary';
 import { ContactUsScreen } from '../features/support/screens/ContactUsScreen';
 import React from 'react';
 import { createDrawerNavigator } from '@react-navigation/drawer';
@@ -14,6 +15,34 @@ import { ChangePasswordScreen } from '../features/settings/screens/ChangePasswor
 import { SettingsScreen } from '../features/settings/screens/SettingsScreen';
 import { HelpSupportScreen } from '../features/settings/screens/HelpSupportScreen';
 import { AboutScreen } from '../features/about/screens/AboutScreen';
+const AccountMyListingsScreen = withAccountAccess(MyListingsScreen, {
+  type: 'OPEN_ACCOUNT',
+  params: { destination: 'MyListings' },
+});
+const AccountSavedListingsScreen = withAccountAccess(SavedListingsScreen, {
+  type: 'OPEN_ACCOUNT',
+  params: { destination: 'SavedListings' },
+});
+const AccountMyReviewsScreen = withAccountAccess(MyReviewsScreen, {
+  type: 'OPEN_ACCOUNT',
+  params: { destination: 'MyReviews' },
+});
+const AccountNotificationsScreen = withAccountAccess(NotificationsScreen, {
+  type: 'OPEN_ACCOUNT',
+  params: { destination: 'Notifications' },
+});
+const AccountTrackingScreen = withAccountAccess(TrackingScreen, {
+  type: 'OPEN_ACCOUNT',
+  params: { destination: 'Tracking' },
+});
+const AccountSettingsScreen = withAccountAccess(SettingsScreen, {
+  type: 'OPEN_ACCOUNT',
+  params: { destination: 'Settings' },
+});
+const AccountChangePasswordScreen = withAccountAccess(ChangePasswordScreen, {
+  type: 'OPEN_ACCOUNT',
+  params: { destination: 'ChangePassword' },
+});
 const Drawer = createDrawerNavigator<DrawerParamList>();
 export function DrawerNavigator() {
   return (
@@ -34,37 +63,37 @@ export function DrawerNavigator() {
       />
       <Drawer.Screen
         name="MyListings"
-        component={MyListingsScreen}
+        component={AccountMyListingsScreen}
         options={{ title: 'My Listings', headerTitleAlign: 'center' }}
       />
       <Drawer.Screen
         name="SavedListings"
-        component={SavedListingsScreen}
+        component={AccountSavedListingsScreen}
         options={{ title: 'Saved listings' }}
       />
       <Drawer.Screen
         name="MyReviews"
-        component={MyReviewsScreen}
+        component={AccountMyReviewsScreen}
         options={{ headerShown: false }}
       />
       <Drawer.Screen
         name="Notifications"
-        component={NotificationsScreen}
+        component={AccountNotificationsScreen}
         options={{ title: 'Notifications' }}
       />
       <Drawer.Screen
         name="Tracking"
-        component={TrackingScreen}
+        component={AccountTrackingScreen}
         options={{ title: 'Tracking' }}
       />
       <Drawer.Screen
         name="Settings"
-        component={SettingsScreen}
+        component={AccountSettingsScreen}
         options={{ headerShown: false }}
       />
       <Drawer.Screen
         name="ChangePassword"
-        component={ChangePasswordScreen}
+        component={AccountChangePasswordScreen}
         options={{ headerShown: false, swipeEnabled: false }}
       />
       <Drawer.Screen

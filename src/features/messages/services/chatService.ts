@@ -69,6 +69,17 @@ function guard(id: string) {
     );
   return '/conversations/' + encodeURIComponent(id);
 }
+function assertSession(
+  owner: ReturnType<typeof useAuthStore.getState>['user'],
+  signal?: AbortSignal,
+) {
+  if (
+    signal?.aborted ||
+    useAuthStore.getState().status !== 'authenticated' ||
+    useAuthStore.getState().user !== owner
+  )
+    throw new ApiError('Request cancelled.', 'cancelled');
+}
 // Proposed contracts only; gates stay false until Laravel verifies authorization and DTOs.
 export async function getConversation(id: string, signal?: AbortSignal) {
   if (isUiPreviewActive()) {
@@ -76,10 +87,14 @@ export async function getConversation(id: string, signal?: AbortSignal) {
     return demoConversation(id);
   }
   const path = guard(id);
+  const owner = useAuthStore.getState().user;
   const { data } = await apiClient.get(path, { signal });
+  assertSession(owner, signal);
   const value = z.object({ data: conversationSchema }).parse(data).data;
   if (value.id !== id)
     throw new ApiError('Conversation unavailable.', 'forbidden', 403);
+  delete value.participant.phone;
+  delete value.participant.callPermitted;
   return value;
 }
 export async function getMessages(
@@ -92,11 +107,13 @@ export async function getMessages(
     return demoMessages(id);
   }
   const path = guard(id);
+  const owner = useAuthStore.getState().user;
   if (cursor) z.string().min(1).max(2048).parse(cursor);
   const { data } = await apiClient.get(path + '/messages', {
     signal,
     params: cursor ? { before: cursor } : {},
   });
+  assertSession(owner, signal);
   const page = pageSchema.parse(data);
   if (page.data.some(item => item.conversationId !== id))
     throw new ApiError('Conversation unavailable.', 'forbidden', 403);
@@ -115,6 +132,7 @@ export async function sendMessage(id: string, body: string, clientId: string) {
     return demoSend(id, text, clientId);
   }
   const path = guard(id);
+  const owner = useAuthStore.getState().user;
   if (!appConfig.chatIdempotencyVerified)
     throw new ApiError(
       'Sending is unavailable until reliable retry support is configured.',
@@ -132,6 +150,7 @@ export async function sendMessage(id: string, body: string, clientId: string) {
     { body: text, clientId },
     { headers: { 'Idempotency-Key': clientId } },
   );
+  assertSession(owner);
   const message = z.object({ data: messageSchema }).parse(data).data;
   if (
     message.conversationId !== id ||
@@ -141,9 +160,7 @@ export async function sendMessage(id: string, body: string, clientId: string) {
     throw new ApiError('Could not confirm the sent message.', 'unknown');
   return message;
 }
-export function chatPhone(conversation: Conversation) {
-  const person = conversation.participant;
-  if (person.deleted || person.callPermitted !== true || !person.phone) return;
-  const phone = person.phone.replace(/[\s()-]/g, '');
-  return /^\+?\d{7,15}$/.test(phone) ? phone : undefined;
+export function chatPhone(_conversation: Conversation) {
+  // No verified accepted-request/authorized-participant contract is available yet.
+  return undefined;
 }

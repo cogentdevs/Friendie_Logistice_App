@@ -22,6 +22,9 @@ test('a revoked token clears secure storage and protected state', async () => {
   useAuthStore
     .getState()
     .setUser({ id: 1, name: 'Test', email: 'test@example.test' });
+  require('react-native-keychain').getGenericPassword.mockResolvedValue({
+    password: 'revoked',
+  });
   await expect(clientFor(401).get('/user')).rejects.toMatchObject({
     kind: 'unauthorized',
     status: 401,
@@ -66,4 +69,50 @@ test('tokens are attached to API requests', async () => {
   });
   installInterceptors(client);
   expect((await client.get('/')).data).toBe('Bearer token');
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+  require('react-native-keychain').getGenericPassword.mockResolvedValue(false);
+});
+test('a delayed unauthorized response cannot revoke a newer account session', async () => {
+  const keychain = require('react-native-keychain');
+  keychain.getGenericPassword.mockResolvedValue({ password: 'old-token' });
+  useAuthStore
+    .getState()
+    .setUser({ id: 1, name: 'Old', email: 'old@example.test' });
+  let fail!: () => void;
+  let started!: () => void;
+  const dispatched = new Promise<void>(resolve => {
+    started = resolve;
+  });
+  const client = axios.create({
+    baseURL: 'https://api.example.test',
+    adapter: config =>
+      new Promise((_resolve, reject) => {
+        fail = () =>
+          reject(
+            new axios.AxiosError(
+              'failure',
+              'ERR_BAD_RESPONSE',
+              config,
+              undefined,
+              { status: 401, statusText: '', data: {}, config, headers: {} },
+            ),
+          );
+        started();
+      }),
+  });
+  installInterceptors(client);
+  const pending = client.get('/user');
+  await dispatched;
+  keychain.getGenericPassword.mockResolvedValue({ password: 'new-token' });
+  useAuthStore
+    .getState()
+    .setUser({ id: 2, name: 'New', email: 'new@example.test' });
+  keychain.resetGenericPassword.mockClear();
+  fail();
+  await expect(pending).rejects.toMatchObject({ kind: 'unauthorized' });
+  expect(keychain.resetGenericPassword).not.toHaveBeenCalled();
+  expect(useAuthStore.getState().user?.id).toBe(2);
 });

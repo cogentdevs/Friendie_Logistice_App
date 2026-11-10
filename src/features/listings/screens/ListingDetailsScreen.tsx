@@ -1,3 +1,6 @@
+import { ListingContactSection } from '../components/ListingContactSection';
+import { RequestConfirmationDialog } from '../components/RequestConfirmationDialog';
+import { requireAuth as requestAuthentication } from '../../auth/services/authFlowCoordinator';
 import { isListingDemoMode } from '../development/demoListings';
 import React, {
   useCallback,
@@ -51,7 +54,7 @@ import { useAuthStore } from '../../../store/authStore';
 import { useListingDetails } from '../hooks/useListingDetails';
 import {
   permittedPhone,
-  requestUnavailableReason,
+  requestReviewUnavailableReason,
 } from '../services/listingDetailsService';
 import { useListingBookmarks } from '../store/bookmarkStore';
 import { formatPrice, formatTravelDate } from '../components/ListingCard';
@@ -68,6 +71,7 @@ export function ListingDetailsScreen({ navigation, route }: Props) {
       navigation={navigation}
       id={id}
       returnTo={route.params.returnTo}
+      resumeAction={route.params.resumeAction}
     />
   );
 }
@@ -75,16 +79,108 @@ function DetailsContent({
   navigation,
   id,
   returnTo,
+  resumeAction,
 }: {
   navigation: Props['navigation'];
   id: string;
   returnTo?: 'MyListings' | 'MyReviews';
+  resumeAction?: 'save' | 'request' | 'contact';
 }) {
   const insets = useSafeAreaInsets();
   const focused = useIsFocused(),
     query = useListingDetails(id);
   const detail = query.isError ? undefined : query.data;
   const user = useAuthStore(state => state.user);
+  const authStatus = useAuthStore(state => state.status);
+  const [confirming, setConfirming] = useState(false);
+  const [checkingRequest, setCheckingRequest] = useState(false);
+  const requestFlight = useRef(false);
+  const requestGeneration = useRef(0);
+  useEffect(() => {
+    const generation = ++requestGeneration.current;
+    setConfirming(false);
+    setCheckingRequest(false);
+    requestFlight.current = false;
+    return () => {
+      requestGeneration.current = generation + 1;
+    };
+  }, [user?.id, authStatus]);
+  const reviewRequest = useCallback(async () => {
+    const session = useAuthStore.getState();
+    if (session.status !== 'authenticated' || !session.user) {
+      requestAuthentication({
+        type: 'REQUEST_LISTING',
+        params: { listingId: id },
+      });
+      return;
+    }
+    if (requestFlight.current) return;
+    requestFlight.current = true;
+    setCheckingRequest(true);
+    setActionError('');
+    const generation = requestGeneration.current;
+    try {
+      const refreshed = await query.refetch();
+      if (
+        generation !== requestGeneration.current ||
+        useAuthStore.getState().status !== 'authenticated' ||
+        useAuthStore.getState().user?.id !== session.user.id
+      )
+        return;
+      if (refreshed.isError || !refreshed.data) {
+        setActionError(
+          'Could not verify this listing. Check your connection and retry.',
+        );
+        return;
+      }
+      const blocked = requestReviewUnavailableReason(
+        refreshed.data,
+        session.user.id,
+      );
+      if (blocked) {
+        setActionError(blocked);
+        return;
+      }
+      setConfirming(true);
+    } catch {
+      if (generation === requestGeneration.current)
+        setActionError('Could not verify this listing. Please retry.');
+    } finally {
+      if (generation === requestGeneration.current) {
+        requestFlight.current = false;
+        setCheckingRequest(false);
+      }
+    }
+  }, [id, query]);
+  useEffect(() => {
+    if (
+      !resumeAction ||
+      authStatus !== 'authenticated' ||
+      !detail ||
+      query.isFetching
+    )
+      return;
+    navigation.setParams({ resumeAction: undefined });
+    if (resumeAction === 'request') {
+      reviewRequest().catch(() =>
+        setActionError('Could not verify this listing. Please retry.'),
+      );
+      return;
+    }
+    Alert.alert(
+      'Continue with listing',
+      resumeAction === 'save'
+        ? 'You are signed in. Tap the heart to save this listing on your device.'
+        : 'Secure contact authorization is unavailable. Contact information remains protected.',
+    );
+  }, [
+    resumeAction,
+    authStatus,
+    detail,
+    query.isFetching,
+    navigation,
+    reviewRequest,
+  ]);
   const { ids, owner, load, toggle } = useListingBookmarks();
   const [saving, setSaving] = useState(false),
     [actionError, setActionError] = useState(''),
@@ -101,10 +197,10 @@ function DetailsContent({
   const save = useCallback(async () => {
     if (!detail || query.isFetching) return;
     if (useAuthStore.getState().status !== 'authenticated') {
-      Alert.alert(
-        'Sign in required',
-        'Saving listings needs a real signed-in account. UI preview does not create a session.',
-      );
+      requestAuthentication({
+        type: 'SAVE_LISTING',
+        params: { listingId: String(detail.id) },
+      });
       return;
     }
     if (saveInFlight.current) return;
@@ -234,7 +330,24 @@ function DetailsContent({
     );
   };
   const message = () => {
-    if (!detail?.contact?.conversationId || !requireAuth()) return;
+    if (!detail?.contact?.conversationId) return;
+    if (useAuthStore.getState().status !== 'authenticated') {
+      requestAuthentication({
+        type: 'OPEN_MESSAGES',
+        params: {
+          conversationId: detail.contact.conversationId,
+          returnTo: {
+            stack: navigation
+              .getState()
+              .routeNames.some(name => name === 'Home')
+              ? 'HomeStack'
+              : 'ListingsStack',
+            listingId: String(detail.id),
+          },
+        },
+      });
+      return;
+    }
     if (navigationRef.isReady())
       navigationRef.navigate('AppDrawer', {
         screen: 'MainTabs',
@@ -455,6 +568,32 @@ function DetailsContent({
                 </View>
               ))}
             </View>
+            <AppText
+              accessibilityRole="header"
+              variant="headingMD"
+              color={colors.navy}
+            >
+              {detail.title}
+            </AppText>
+            <AppText variant="caption">
+              {detail.type === 'carry' ? 'Carry Parcel' : 'Send Parcel'}
+            </AppText>
+            <ListingContactSection
+              unavailableReason={requestReviewUnavailableReason(
+                detail,
+                authStatus === 'authenticated' ? user?.id : undefined,
+              )}
+              guest={authStatus === 'guest'}
+              checking={authStatus === 'restoring'}
+              busy={checkingRequest}
+              onRequest={() => {
+                reviewRequest().catch(() =>
+                  setActionError(
+                    'Unable to review this listing. Please retry.',
+                  ),
+                );
+              }}
+            />
             <View style={styles.fee}>
               <AppText color={colors.navy} style={styles.feeLabel}>
                 {detail.type === 'carry' ? 'Carrying Fee' : 'Delivery Fee'}
@@ -487,23 +626,47 @@ function DetailsContent({
       {detail && (
         <View style={styles.footer}>
           <AppText accessibilityLiveRegion="polite" variant="caption">
-            {requestUnavailableReason(detail, user?.id)}
+            {requestReviewUnavailableReason(
+              detail,
+              authStatus === 'authenticated' ? user?.id : undefined,
+            ) ??
+              'Requests and contact authorization require a verified backend connection.'}
           </AppText>
-          <GradientButton
-            title={
-              detail.requestStatus === 'pending' ||
-              detail.requestStatus === 'accepted'
-                ? 'Already Requested'
-                : 'Request Now'
-            }
-            icon="none"
-            disabled
-            onPress={() =>
-              setActionError(requestUnavailableReason(detail, user?.id))
-            }
-          />
+          {authStatus === 'authenticated' && user?.id === detail.ownerId ? (
+            <AppButton
+              title="Manage Listing"
+              onPress={() =>
+                requestAuthentication({
+                  type: 'OPEN_ACCOUNT',
+                  params: { destination: 'MyListings' },
+                })
+              }
+            />
+          ) : (
+            <GradientButton
+              title="Request Now"
+              icon="none"
+              loading={checkingRequest}
+              disabled={
+                authStatus === 'restoring' ||
+                !!requestReviewUnavailableReason(detail) ||
+                query.isFetching
+              }
+              onPress={() => {
+                reviewRequest().catch(() =>
+                  setActionError(
+                    'Unable to review this listing. Please retry.',
+                  ),
+                );
+              }}
+            />
+          )}
         </View>
       )}
+      <RequestConfirmationDialog
+        visible={confirming && authStatus === 'authenticated'}
+        onCancel={() => setConfirming(false)}
+      />
       <Modal
         visible={menu}
         transparent

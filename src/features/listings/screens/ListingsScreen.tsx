@@ -1,3 +1,4 @@
+import { requireAuth as requestAuthentication } from '../../auth/services/authFlowCoordinator';
 import { isListingDemoMode } from '../development/demoListings';
 import React, {
   useCallback,
@@ -8,7 +9,6 @@ import React, {
 } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Pressable,
   StatusBar,
@@ -94,10 +94,10 @@ function Results({
   }, [navigation, total, onBack, onFilters]);
   const save = useCallback(async (id: number) => {
     if (useAuthStore.getState().status !== 'authenticated') {
-      Alert.alert(
-        'Sign in required',
-        'Saving listings needs a real signed-in account. UI preview does not create a session.',
-      );
+      requestAuthentication({
+        type: 'SAVE_LISTING',
+        params: { listingId: String(id) },
+      });
       return;
     }
     setSaving(value => [...value, id]);

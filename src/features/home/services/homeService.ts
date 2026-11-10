@@ -1,10 +1,14 @@
 import { ApiError } from '../../../types/api';
-import {
-  isListingDemoMode,
-  getDemoListings,
-} from '../../listings/development/demoListings';
+import { getDemoListings } from '../../listings/development/demoListings';
 import { homeDestinations } from '../data/destinations';
 import { HomeAd, HomeCategory, HomeDestinationItem } from '../types/home.types';
+import {
+  isStaticMarketplaceEnabled,
+  StaticMarketplaceDisabledError,
+} from '../../listings/development/staticMarketplace';
+const requireStaticMarketplace = () => {
+  if (!isStaticMarketplaceEnabled()) throw new StaticMarketplaceDisabledError();
+};
 const unavailable = (section: string): never => {
   throw new ApiError(
     `${section} is currently unavailable. Please try again later.`,
@@ -14,7 +18,7 @@ const unavailable = (section: string): never => {
 // No verified category/destination/latest/count contracts exist. These boundaries make no guessed requests.
 export const homeService = {
   async categories(): Promise<HomeCategory[]> {
-    if (!isListingDemoMode()) return unavailable('Categories');
+    requireStaticMarketplace();
     return [
       { id: 'Food Items', name: 'Food Items' },
       { id: 'Personal Items', name: 'Personal Items' },
@@ -22,21 +26,26 @@ export const homeService = {
     ];
   },
   async destinations(): Promise<HomeDestinationItem[]> {
-    if (!isListingDemoMode()) return unavailable('Destinations');
-    return [
+    requireStaticMarketplace();
+    const countries = [
       ['SA', 'Saudi Arabia'],
       ['AE', 'UAE'],
       ['PH', 'Philippines'],
       ['BH', 'Bahrain'],
       ['PK', 'Pakistan'],
       ['IN', 'India'],
-    ].map(([code, name]) => ({
+    ];
+    for (const destination of homeDestinations) {
+      if (!countries.some(([code]) => code === destination.code))
+        countries.push([destination.code, destination.country]);
+    }
+    return countries.map(([code, name]) => ({
       country: { id: 'demo-' + code, code, name },
       photo: homeDestinations.find(d => d.code === code)?.photo,
     }));
   },
   async latest(): Promise<HomeAd[]> {
-    if (!isListingDemoMode()) return unavailable('Latest ads');
+    requireStaticMarketplace();
     // Sample order only; production requires authoritative publication time and public-active visibility.
     return getDemoListings(1, {}, { mode: 'worldwide' }).data.slice(0, 3);
   },

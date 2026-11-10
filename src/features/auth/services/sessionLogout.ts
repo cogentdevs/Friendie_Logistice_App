@@ -1,3 +1,4 @@
+import { cancelAuthentication } from './authFlowCoordinator';
 import type { QueryClient } from '@tanstack/react-query';
 import { authService } from './authService';
 import { useAuthStore } from '../../../store/authStore';
@@ -11,9 +12,20 @@ import { useFilterDraftStore } from '../../search/store/filterDraftStore';
 import { useRecentSearchStore } from '../../search/store/recentSearchStore';
 import { useLocationStore } from '../../location/store/locationStore';
 import { clearPendingNotification } from '../../../navigation/navigationRef';
+// Also used on expiry/account replacement, without touching public preferences or credentials.
+export function clearPrivateAccountMemory(client: QueryClient) {
+  clearPendingNotification();
+  client.cancelQueries().catch(() => {});
+  client.clear();
+  useListingBookmarks.setState({ ids: [], owner: undefined });
+  useMyListingsTabs.getState().clear();
+  useChatDrafts.getState().clear();
+  useListingDraft.getState().discard();
+}
 let flight: Promise<{ cacheCleared: boolean }> | undefined;
 export function logoutSession(client: QueryClient) {
   if (flight) return flight;
+  cancelAuthentication();
   const operation = (async () => {
     const owner =
       useAuthStore.getState().user?.id ?? useListingBookmarks.getState().owner;
@@ -35,7 +47,10 @@ export function logoutSession(client: QueryClient) {
     ]);
     useRecentSearchStore.setState({ items: [], ready: true });
     client.clear();
-    useDevelopmentStore.getState().requestLogin();
+    useDevelopmentStore.setState({
+      previewActive: false,
+      authEntryRequested: false,
+    });
     return {
       cacheCleared: results.every(result => result.status === 'fulfilled'),
     };

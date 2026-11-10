@@ -1,3 +1,5 @@
+import { useAuthStore } from '../../../store/authStore';
+import { requireAuth } from '../../auth/services/authFlowCoordinator';
 import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -149,6 +151,13 @@ export function PostListingScreen({ navigation, route }: Props) {
   );
   const next = form.handleSubmit(
     data => {
+      if (useAuthStore.getState().status !== 'authenticated') {
+        requireAuth({
+          type: 'POST_LISTING',
+          params: { listingType: data.type },
+        });
+        return;
+      }
       if (continuing.current) return;
       continuing.current = true;
       Keyboard.dismiss();

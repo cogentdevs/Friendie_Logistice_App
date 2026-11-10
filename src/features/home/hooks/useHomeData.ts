@@ -1,16 +1,20 @@
 import { useQuery, QueryClient } from '@tanstack/react-query';
 import { useIsFocused } from '@react-navigation/native';
 import { useAuthStore } from '../../../store/authStore';
-import { useDevelopmentStore } from '../../../store/developmentStore';
-import { isListingDemoMode } from '../../listings/development/demoListings';
+import {
+  useDevelopmentStore,
+  isUiPreviewActive,
+} from '../../../store/developmentStore';
+import { isStaticMarketplaceEnabled } from '../../listings/development/staticMarketplace';
 import { useProfile } from '../../profile/hooks/useProfile';
 import { homeService } from '../services/homeService';
 export function useHomeData() {
   const focused = useIsFocused(),
     owner = useAuthStore(s => s.user?.id);
   useDevelopmentStore(s => s.previewActive);
-  const demo = isListingDemoMode(),
-    scope = demo ? 'demo' : owner ?? 'guest';
+  const demo = isStaticMarketplaceEnabled();
+  const preview = isUiPreviewActive();
+  const scope = demo ? 'static' : 'unavailable';
   const options = { enabled: focused, staleTime: 60000, retry: false as const };
   const categories = useQuery({
     ...options,
@@ -29,7 +33,7 @@ export function useHomeData() {
   });
   const unread = useQuery({
     ...options,
-    queryKey: ['home', 'unread', scope],
+    queryKey: ['home', 'unread', owner ?? 'guest'],
     queryFn: homeService.unread,
   });
   const summary = useProfile();
@@ -48,6 +52,7 @@ export function useHomeData() {
     unread,
     summary: summary.query,
     demo,
+    preview,
     refresh,
   };
 }

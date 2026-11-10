@@ -1,3 +1,4 @@
+import { useCompleteOnboarding } from './useCompleteOnboarding';
 import { useCallback } from 'react';
 import { BackHandler } from 'react-native';
 import {
@@ -49,12 +50,13 @@ export function useOnboardingBack(previous: Previous) {
 }
 export function useOnboardingNavigation(previous: Previous, next: Next) {
   const navigation = useOnboardingBack(previous);
+  const { complete, loading, error } = useCompleteOnboarding();
   return {
-    onSkip: () =>
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'AuthStack', params: { screen: 'Login' } }],
-      }),
-    onNext: () => navigation.navigate(next),
+    loading,
+    error,
+    onSkip: complete,
+    onNext: () => {
+      if (!loading) navigation.navigate(next);
+    },
   };
 }

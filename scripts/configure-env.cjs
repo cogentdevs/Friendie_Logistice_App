@@ -21,6 +21,7 @@ const config = {
   chatIdempotencyVerified: values.CHAT_IDEMPOTENCY_VERIFIED === 'true',
   navigationPreview: values.NAVIGATION_PREVIEW === 'true',
   uiPreviewEnabled: values.UI_PREVIEW_ENABLED !== 'false',
+  testingUiPreview: values.TESTING_UI_PREVIEW === 'true',
   firebaseEnabled: values.FIREBASE_ENABLED === 'true',
   placesProxyUrl: values.PLACES_PROXY_URL || '',
   placesApiVerified: values.PLACES_API_VERIFIED === 'true',

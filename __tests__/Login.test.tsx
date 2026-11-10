@@ -1,3 +1,8 @@
+import {
+  beginAuthFlow,
+  clearAuthFlow,
+  useAuthFlowStore,
+} from '../src/features/auth/store/authFlowStore';
 import React from 'react';
 import { appConfig } from '../src/constants/appConfig';
 const originalPreview = appConfig.uiPreviewEnabled;
@@ -17,6 +22,7 @@ let tree: ReactTestRenderer;
 let client: QueryClient;
 const navigate = jest.fn();
 beforeEach(async () => {
+  clearAuthFlow();
   appConfig.uiPreviewEnabled = false;
   useAuthStore.getState().clear();
   client = new QueryClient({
@@ -160,4 +166,50 @@ test('Forgot Password and Register open existing routes; unsupported providers a
         node.props.accessibilityLabel === 'Apple',
     ),
   ).toHaveLength(0);
+});
+
+test('testing release rejects blank and wrong credentials, then accepts the UI testing login without an auth request', async () => {
+  const { useDevelopmentStore } = require('../src/store/developmentStore');
+  const previousTesting = appConfig.testingUiPreview;
+  const loginRequest = jest.spyOn(authService, 'login');
+  try {
+    appConfig.uiPreviewEnabled = true;
+    appConfig.testingUiPreview = true;
+    jest.replaceProperty(
+      globalThis as typeof globalThis & { __DEV__: boolean },
+      '__DEV__',
+      false,
+    );
+    useDevelopmentStore.getState().exitPreview();
+    await press('Sign In');
+    expect(useDevelopmentStore.getState().previewActive).toBe(false);
+    await fill('demo@friendie.test', 'wrong-password');
+    await press('Sign In');
+    expect(useDevelopmentStore.getState().previewActive).toBe(false);
+    await fill('  DEMO@FRIENDIE.TEST  ', 'Friendie@123');
+    await press('Sign In');
+    expect(useDevelopmentStore.getState().previewActive).toBe(true);
+    expect(useAuthStore.getState().status).not.toBe('authenticated');
+    expect(loginRequest).not.toHaveBeenCalled();
+  } finally {
+    appConfig.testingUiPreview = previousTesting;
+    useDevelopmentStore.getState().exitPreview();
+  }
+});
+
+test('protected pending action uses real authentication even when UI testing preview is enabled', async () => {
+  appConfig.uiPreviewEnabled = true;
+  const login = jest
+    .spyOn(authService, 'login')
+    .mockRejectedValue(new ApiError('Sign in unavailable.', 'network'));
+  await Renderer.act(async () => {
+    beginAuthFlow({ type: 'POST_LISTING', params: { listingType: 'carry' } });
+  });
+  await fill('demo@friendie.test', 'Friendie@123');
+  await press('Sign In');
+  expect(login).toHaveBeenCalledTimes(1);
+  expect(useAuthStore.getState().status).toBe('guest');
+  expect(useAuthFlowStore.getState().flow?.action.type).toBe('POST_LISTING');
+  expect(textPresent('Sign in unavailable.')).toBe(true);
+  clearAuthFlow();
 });

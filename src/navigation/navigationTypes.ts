@@ -9,13 +9,21 @@ export type HomeStackParamList = {
   Home: undefined;
   Search: undefined;
   Results: undefined;
-  ListingDetails: { listingId: string; returnTo?: 'MyListings' | 'MyReviews' };
+  ListingDetails: {
+    listingId: string;
+    returnTo?: 'MyListings' | 'MyReviews';
+    resumeAction?: 'save' | 'request' | 'contact';
+  };
   Filters: undefined;
 };
 export type ListingsStackParamList = {
   Listings: undefined;
   Filters: undefined;
-  ListingDetails: { listingId: string; returnTo?: 'MyListings' | 'MyReviews' };
+  ListingDetails: {
+    listingId: string;
+    returnTo?: 'MyListings' | 'MyReviews';
+    resumeAction?: 'save' | 'request' | 'contact';
+  };
 };
 export type PostStackParamList = {
   PostListing: { type?: 'send' | 'carry' } | undefined;

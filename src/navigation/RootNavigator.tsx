@@ -1,8 +1,14 @@
+import { useQueryClient } from '@tanstack/react-query';
+import { clearPrivateAccountMemory } from '../features/auth/services/sessionLogout';
 import { DisclaimerScreen } from '../features/legal/screens/DisclaimerScreen';
 import { ContactSupportScreen } from '../features/support/screens/ContactSupportScreen';
 import { TermsConditionsScreen } from '../features/legal/screens/TermsConditionsScreen';
 import { PrivacyPolicyScreen } from '../features/legal/screens/PrivacyPolicyScreen';
-import React from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
+import {
+  cancelAuthentication,
+  coordinateAuthentication,
+} from '../features/auth/services/authFlowCoordinator';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { RootStackParamList } from './navigationTypes';
@@ -17,11 +23,11 @@ import { VerifiedIntroScreen } from '../features/onboarding/screens/VerifiedIntr
 import { SendCarryIntroScreen } from '../features/onboarding/screens/SendCarryIntroScreen';
 import { useAuthStore } from '../store/authStore';
 import { useDevelopmentStore } from '../store/developmentStore';
-import { useUIStore } from '../store/uiStore';
 import { useBootstrap } from '../app/AppBootstrap';
-import { appConfig } from '../constants/appConfig';
+import { appConfig, isUiPreviewAllowed } from '../constants/appConfig';
 import { colors } from '../theme';
 import { SafeScreen } from '../components/layout/SafeScreen';
+import { AppButton } from '../components/ui/AppButton';
 import { ErrorState } from '../components/ui/ErrorState';
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const theme = {
@@ -37,21 +43,57 @@ const theme = {
   },
 };
 export function RootNavigator() {
-  const { ready, error, retry } = useBootstrap();
+  const {
+    ready,
+    status: startupStatus,
+    error,
+    retry,
+    continueWithoutPreferences,
+  } = useBootstrap();
   const status = useAuthStore(state => state.status);
-  const onboarded = useUIStore(state => state.onboardingComplete);
+  const owner = useAuthStore(state => state.user?.id);
+  const client = useQueryClient();
+  const previousOwner = useRef(owner);
+  const [sessionEpoch, setSessionEpoch] = useState(0);
+  useLayoutEffect(() => {
+    // Guest -> member preserves the public origin. Logout/account switch drops private history.
+    if (previousOwner.current && previousOwner.current !== owner) {
+      cancelAuthentication();
+      clearPrivateAccountMemory(client);
+      setSessionEpoch(value => value + 1);
+    }
+    previousOwner.current = owner;
+    coordinateAuthentication();
+  }, [owner, status, client]);
+  const navigationChanged = () => {
+    coordinateAuthentication();
+    flushPendingNotification();
+  };
   const previewActive = useDevelopmentStore(state => state.previewActive);
   const loginRequested = useDevelopmentStore(state => state.authEntryRequested);
-  const appAllowed =
-    status === 'authenticated' ||
-    (__DEV__ &&
-      !loginRequested &&
-      (appConfig.navigationPreview ||
-        (appConfig.uiPreviewEnabled && previewActive)));
+  const preview = isUiPreviewAllowed() && previewActive;
+  const needsOnboarding =
+    startupStatus === 'onboardingRequired' &&
+    !preview &&
+    !(__DEV__ && appConfig.navigationPreview);
+  const explicitLogin =
+    loginRequested && status !== 'authenticated' && !preview;
+  const flowKey =
+    loginRequested && !preview
+      ? 'requested-auth-' + sessionEpoch
+      : needsOnboarding
+      ? 'onboarding'
+      : preview
+      ? 'preview'
+      : 'main-' + sessionEpoch;
   if (error)
     return (
       <SafeScreen edges={['top', 'bottom', 'left', 'right']}>
         <ErrorState message={error} onRetry={retry} />
+        <AppButton
+          title="Continue without saved preferences"
+          onPress={continueWithoutPreferences}
+        />
       </SafeScreen>
     );
   if (!ready) return <SplashScreen />;
@@ -60,31 +102,36 @@ export function RootNavigator() {
       ref={navigationRef}
       linking={linking}
       theme={theme}
-      onReady={flushPendingNotification}
-      onStateChange={flushPendingNotification}
+      onReady={navigationChanged}
+      onStateChange={navigationChanged}
     >
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {!ready ? (
-          <Stack.Screen name="Splash" component={SplashScreen} />
-        ) : appAllowed ? (
-          <Stack.Screen name="AppDrawer" component={DrawerNavigator} />
-        ) : !onboarded && !loginRequested ? (
-          <>
-            <Stack.Screen name="Welcome" component={WelcomeScreen} />
-            <Stack.Screen name="Onboarding" component={SendCarryIntroScreen} />
-            <Stack.Screen
-              name="VerifiedReliable"
-              component={VerifiedIntroScreen}
-            />
-            <Stack.Screen
-              name="GlobalReach"
-              component={GlobalReachIntroScreen}
-            />
+        <Stack.Group navigationKey={flowKey}>
+          {needsOnboarding && !explicitLogin && (
+            <>
+              <Stack.Screen name="Welcome" component={WelcomeScreen} />
+              <Stack.Screen
+                name="Onboarding"
+                component={SendCarryIntroScreen}
+              />
+              <Stack.Screen
+                name="VerifiedReliable"
+                component={VerifiedIntroScreen}
+              />
+              <Stack.Screen
+                name="GlobalReach"
+                component={GlobalReachIntroScreen}
+              />
+            </>
+          )}
+          {explicitLogin && (
             <Stack.Screen name="AuthStack" component={AuthNavigator} />
-          </>
-        ) : (
-          <Stack.Screen name="AuthStack" component={AuthNavigator} />
-        )}
+          )}
+          <Stack.Screen name="AppDrawer" component={DrawerNavigator} />
+          {!explicitLogin && (
+            <Stack.Screen name="AuthStack" component={AuthNavigator} />
+          )}
+        </Stack.Group>
         <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
         <Stack.Screen
           name="TermsConditions"

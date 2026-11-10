@@ -11,6 +11,7 @@
   "chatIdempotencyVerified": false,
   "navigationPreview": false,
   "uiPreviewEnabled": true,
+  "testingUiPreview": true,
   "firebaseEnabled": false,
   "placesProxyUrl": "",
   "placesApiVerified": false

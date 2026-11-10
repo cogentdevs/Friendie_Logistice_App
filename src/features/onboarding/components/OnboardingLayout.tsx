@@ -62,6 +62,8 @@ export function OnboardingLayout({
               accessibilityRole="button"
               accessibilityLabel="Skip onboarding"
               onPress={onSkip}
+              disabled={loading}
+              accessibilityState={{ disabled: loading, busy: loading }}
               style={({ pressed }) => [styles.skip, pressed && styles.pressed]}
             >
               <AppText color={colors.primaryDark} style={styles.skipText}>

@@ -227,3 +227,5 @@ Account Settings is available from Drawer > Settings or Profile settings. Suppor
 Profile, Settings and Drawer share the premium auth-feature Log Out confirmation. Secure cleanup and validation details: [Screen 31 report](docs/SCREEN_31_REPORT.md).
 
 Profile and Dashboard share one two-tab Reviews screen. Backend findings, changed files and validation: [Reviews report](docs/REVIEWS_REPORT.md).
+
+Phase 1 public startup: completed/skipped onboarding now opens guest Home. Architecture, privacy boundaries, backend limits and validation: [Phase 1 report](docs/PHASE_1_GUEST_STARTUP_REPORT.md).

@@ -1,6 +1,10 @@
+import {
+  clearAuthFlow,
+  useAuthFlowStore,
+} from '../src/features/auth/store/authFlowStore';
 import React from 'react';
 import Renderer, { ReactTestRenderer } from 'react-test-renderer';
-import { Alert, FlatList } from 'react-native';
+import { FlatList } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ListingsScreen } from '../src/features/listings/screens/ListingsScreen';
 import { formatPrice } from '../src/features/listings/components/ListingCard';
@@ -77,6 +81,7 @@ async function press(label: string) {
   await settle();
 }
 beforeEach(async () => {
+  clearAuthFlow();
   useSearchStore.getState().reset();
   useLocationStore.getState().useWorldwide();
   useAuthStore.setState({ status: 'guest', user: null });
@@ -144,10 +149,12 @@ test('guest save is blocked; authenticated bookmarks persist locally and toggle'
     data: [item],
     meta: { current_page: 1, last_page: 1 },
   });
-  const alert = jest.spyOn(Alert, 'alert');
   await mount();
   await press('Save listing 1 on this device');
-  expect(alert).toHaveBeenCalledWith('Sign in required', expect.any(String));
+  expect(useAuthFlowStore.getState().flow?.action).toEqual({
+    type: 'SAVE_LISTING',
+    params: { listingId: '1' },
+  });
   expect(useListingBookmarks.getState().ids).toEqual([]);
   await Renderer.act(async () => {
     useAuthStore
@@ -217,12 +224,10 @@ test('a late previous-filter response cannot replace current results', async () 
 });
 
 test('a failed device bookmark write does not claim a saved listing', async () => {
-  jest
-    .spyOn(service, 'getListings')
-    .mockResolvedValue({
-      data: [item],
-      meta: { current_page: 1, last_page: 1 },
-    });
+  jest.spyOn(service, 'getListings').mockResolvedValue({
+    data: [item],
+    meta: { current_page: 1, last_page: 1 },
+  });
   useAuthStore
     .getState()
     .setUser({ id: 77, name: 'Member', email: 'member@example.test' });

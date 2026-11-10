@@ -1,3 +1,10 @@
+import {
+  navigationRef,
+  routeNotification,
+  flushPendingNotification,
+  clearPendingNotification,
+} from '../src/navigation/navigationRef';
+import { clearPrivateAccountMemory } from '../src/features/auth/services/sessionLogout';
 import { QueryClient } from '@tanstack/react-query';
 import * as Keychain from 'react-native-keychain';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -37,7 +44,7 @@ afterEach(() => {
   appConfig.authApiVerified = previous.verified;
   jest.restoreAllMocks();
 });
-test('logout clears secure credentials and per-user caches and requests Login without touching onboarding', async () => {
+test('logout clears secure credentials and per-user caches and returns guest access without touching onboarding', async () => {
   await AsyncStorage.setItem('friendie.bookmarks.8', '[12]');
   useListingBookmarks.setState({ owner: 8, ids: [12] });
   useListingDraft
@@ -58,7 +65,7 @@ test('logout clears secure credentials and per-user caches and requests Login wi
   expect(useListingDraft.getState().values.weight).toBe('');
   expect(useSearchStore.getState().filters).toEqual({});
   expect(await AsyncStorage.getItem('friendie.bookmarks.8')).toBeNull();
-  expect(useDevelopmentStore.getState().authEntryRequested).toBe(true);
+  expect(useDevelopmentStore.getState().authEntryRequested).toBe(false);
 });
 test('Keychain failure keeps the real session and navigation state intact', async () => {
   jest.spyOn(secureStorage, 'removeToken').mockRejectedValue(Error('Locked'));
@@ -125,5 +132,27 @@ test('real authenticated session still attempts verified revocation when a previ
   expect(remove).toHaveBeenCalledTimes(1);
   expect(client.getQueryData(['private'])).toBeUndefined();
   expect(useAuthStore.getState().status).toBe('guest');
-  expect(useDevelopmentStore.getState().authEntryRequested).toBe(true);
+  expect(useDevelopmentStore.getState().authEntryRequested).toBe(false);
+});
+
+test('account replacement discards a queued notification from the previous session', () => {
+  const ready = jest.spyOn(navigationRef, 'isReady').mockReturnValue(false);
+  const navigate = jest
+    .spyOn(navigationRef, 'navigate')
+    .mockImplementation(() => {});
+  routeNotification({ type: 'chat', id: 'old-private-room' });
+  clearPrivateAccountMemory(client);
+  useAuthStore
+    .getState()
+    .setUser({ id: 9, name: 'Other', email: 'other@example.test' });
+  ready.mockReturnValue(true);
+  jest
+    .spyOn(navigationRef, 'getRootState')
+    .mockReturnValue({ routeNames: ['AppDrawer'] } as never);
+  flushPendingNotification();
+  try {
+    expect(navigate).not.toHaveBeenCalled();
+  } finally {
+    clearPendingNotification();
+  }
 });

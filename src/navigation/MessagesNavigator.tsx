@@ -1,3 +1,4 @@
+import { withAccountAccess } from './components/AccountAccessBoundary';
 import { ChatScreen } from '../features/messages/screens/ChatScreen';
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -6,7 +7,7 @@ import { stackOptions, backOptions } from './stackOptions';
 import { NavigationHeader } from './components/NavigationHeader';
 import { ConversationsScreen } from '../features/messages/screens/MessagesScreens';
 const Stack = createNativeStackNavigator<MessagesStackParamList>();
-export function MessagesNavigator() {
+function MessagesNavigatorContent() {
   return (
     <Stack.Navigator
       screenOptions={({ navigation }) => ({
@@ -30,3 +31,20 @@ export function MessagesNavigator() {
     </Stack.Navigator>
   );
 }
+
+export const MessagesNavigator = withAccountAccess(
+  MessagesNavigatorContent,
+  (props: {
+    route: {
+      params?: { screen?: string; params?: { conversationId?: string } };
+    };
+  }) => ({
+    type: 'OPEN_MESSAGES',
+    params: {
+      conversationId:
+        props.route.params?.screen === 'Chat'
+          ? props.route.params.params?.conversationId
+          : undefined,
+    },
+  }),
+);

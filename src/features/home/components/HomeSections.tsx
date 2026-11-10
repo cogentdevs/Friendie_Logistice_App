@@ -1,3 +1,4 @@
+import { StaticMarketplaceDisabledError } from '../../listings/development/staticMarketplace';
 import React, { useState } from 'react';
 import {
   FlatList,
@@ -62,6 +63,7 @@ export function CollectionFeedback({
   query: {
     isPending: boolean;
     isError: boolean;
+    error?: unknown;
     data?: unknown[];
     refetch: () => Promise<unknown>;
   };
@@ -75,11 +77,13 @@ export function CollectionFeedback({
         ))}
       </View>
     );
+  if (query.isError && query.error instanceof StaticMarketplaceDisabledError)
+    return <AppText style={styles.feedback}>{query.error.message}</AppText>;
   if (query.isError)
     return (
       <View style={styles.feedback}>
         <AppText accessibilityRole="alert">
-          {label} are unavailable. Check your connection or try again later.
+          Unable to load {label.toLowerCase()}. Please try again.
         </AppText>
         <AppButton
           title={'Retry ' + label}
@@ -158,7 +162,11 @@ function LocationCard({
           <MapPin size={30} color={colors.primary} />
         </View>
       )}
-      <AppText color={colors.navy} style={styles.cardName}>
+      <AppText
+        color={colors.navy}
+        numberOfLines={2}
+        style={[styles.cardName, styles.locationName]}
+      >
         {item.country.name}
       </AppText>
     </Pressable>
@@ -217,13 +225,14 @@ export function PopularLocationsSection({
       <CollectionFeedback query={query} label="Destinations" />
       {!query.isError && (
         <FlatList
+          style={styles.locationsList}
           horizontal
           data={query.data ?? []}
           keyExtractor={i => String(i.country.id)}
           renderItem={({ item }) => (
             <LocationCard item={item} onPress={() => onSelect(item)} />
           )}
-          contentContainerStyle={styles.carousel}
+          contentContainerStyle={[styles.carousel, styles.locationsCarousel]}
           showsHorizontalScrollIndicator={false}
         />
       )}
@@ -342,15 +351,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     padding: 6,
   },
+  locationsList: { flexGrow: 0 },
+  locationsCarousel: { alignItems: 'flex-start' },
   location: {
     width: 146,
+    alignSelf: 'flex-start',
     backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 16,
     overflow: 'hidden',
   },
-  locationImage: { width: '100%', aspectRatio: 1.6 },
+  locationImage: { width: '100%', height: 100, flexShrink: 0 },
+  locationName: { height: 48, textAlignVertical: 'center' },
   fallback: {
     backgroundColor: colors.softPink,
     alignItems: 'center',

@@ -42,7 +42,7 @@ export const useUIStore = create<UIState>(() => ({
     savePreferences({ notificationsEnabled: value }),
 }));
 
-export async function restorePreferences(): Promise<void> {
+export async function restorePreferences(signal?: AbortSignal): Promise<void> {
   // Read failures propagate to bootstrap's retry screen. Only malformed data defaults.
   const raw = await AsyncStorage.getItem(preferenceKey);
   let preferences = defaults;
@@ -71,5 +71,5 @@ export async function restorePreferences(): Promise<void> {
       // Invalid JSON is an unset preference, never an authenticated session.
     }
   }
-  useUIStore.setState(preferences);
+  if (!signal?.aborted) useUIStore.setState(preferences);
 }

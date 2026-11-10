@@ -78,13 +78,13 @@ test('own, pending and accepted requests are blocked', () => {
     'currently unavailable',
   );
 });
-test('phone contact requires explicit permission and safe dialer syntax', () => {
+test('unverified contact contract never unlocks a phone', () => {
   expect(
     permittedPhone({
       ...detail,
       contact: { phone: '+92 300 1234567', callPermitted: true },
     }),
-  ).toBe('+923001234567');
+  ).toBeUndefined();
   expect(
     permittedPhone({ ...detail, contact: { phone: '+923001234567' } }),
   ).toBeUndefined();
@@ -94,4 +94,13 @@ test('phone contact requires explicit permission and safe dialer syntax', () => 
       contact: { phone: '*123#', callPermitted: true },
     }),
   ).toBeUndefined();
+});
+
+// These cases exercise the non-fixture API contract, not the development catalogue.
+const originalStaticMarketplace = appConfig.staticMarketplaceEnabled;
+beforeEach(() => {
+  appConfig.staticMarketplaceEnabled = false;
+});
+afterEach(() => {
+  appConfig.staticMarketplaceEnabled = originalStaticMarketplace;
 });

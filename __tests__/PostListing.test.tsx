@@ -1,3 +1,4 @@
+import { useAuthStore } from '../src/store/authStore';
 import React from 'react';
 import { Alert, TextInput } from 'react-native';
 import Renderer, { ReactTestRenderer } from 'react-test-renderer';
@@ -71,6 +72,9 @@ async function weight(value: string) {
   );
 }
 beforeEach(() => {
+  useAuthStore
+    .getState()
+    .setUser({ id: 9, name: 'Member', email: 'member@example.test' });
   jest.clearAllMocks();
   useListingDraft.getState().discard();
 });

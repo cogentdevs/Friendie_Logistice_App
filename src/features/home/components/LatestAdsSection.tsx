@@ -1,15 +1,9 @@
+import { requireAuth } from '../../auth/services/authFlowCoordinator';
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  Alert,
-  FlatList,
-  StyleSheet,
-  View,
-  useWindowDimensions,
-} from 'react-native';
+import { FlatList, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { AppText } from '../../../components/ui/AppText';
 import { colors } from '../../../theme';
 import { useAuthStore } from '../../../store/authStore';
-import { useDevelopmentStore } from '../../../store/developmentStore';
 import { useListingBookmarks } from '../../listings/store/bookmarkStore';
 import { ListingCard } from '../../listings/components/ListingCard';
 import { CollectionQuery, HomeAd } from '../types/home.types';
@@ -38,17 +32,7 @@ export function LatestAdsSection({
   }, [owner, load]);
   const save = async (id: number) => {
     if (useAuthStore.getState().status !== 'authenticated') {
-      Alert.alert(
-        'Sign in required',
-        'Saving listings requires a signed-in account. No session is created by UI preview.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Sign In',
-            onPress: () => useDevelopmentStore.getState().requestLogin(),
-          },
-        ],
-      );
+      requireAuth({ type: 'SAVE_LISTING', params: { listingId: String(id) } });
       return;
     }
     if (inFlight.current.has(id)) return;

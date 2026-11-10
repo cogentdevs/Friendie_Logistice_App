@@ -1,31 +1,12 @@
-import React, { useRef, useState } from 'react';
+import React from 'react';
+import { useCompleteOnboarding } from '../hooks/useCompleteOnboarding';
 import { OnboardingLayout } from '../components/OnboardingLayout';
 import { useOnboardingBack } from '../hooks/useOnboardingNavigation';
-import { useUIStore } from '../../../store/uiStore';
 import { colors } from '../../../theme';
 
 export function GlobalReachIntroScreen() {
   useOnboardingBack('VerifiedReliable');
-  const saving = useRef(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const complete = async () => {
-    if (saving.current) return;
-    saving.current = true;
-    setLoading(true);
-    setError(null);
-    try {
-      await useUIStore.getState().completeOnboarding();
-      // RootNavigator selects Login or the real authenticated entry from session state.
-    } catch {
-      setError(
-        'Could not save your preference. Check device storage and tap Get Started to retry.',
-      );
-    } finally {
-      saving.current = false;
-      setLoading(false);
-    }
-  };
+  const { complete, loading, error } = useCompleteOnboarding();
   return (
     <OnboardingLayout
       title={'Global Reach\nLocal Trust'}

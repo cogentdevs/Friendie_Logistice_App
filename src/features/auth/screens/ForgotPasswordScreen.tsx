@@ -15,7 +15,7 @@ import { AppText } from '../../../components/ui/AppText';
 import { AppInput } from '../../../components/ui/AppInput';
 import { GradientButton } from '../../../components/ui/GradientButton';
 import { colors } from '../../../theme';
-import { appConfig } from '../../../constants/appConfig';
+import { isUiPreviewAllowed } from '../../../constants/appConfig';
 import {
   forgotPasswordSchema,
   ForgotPasswordValues,
@@ -200,7 +200,7 @@ export function ForgotPasswordScreen({ navigation }: Props) {
                     submit().catch(() => {});
                   }}
                 />
-                {__DEV__ && appConfig.uiPreviewEnabled && (
+                {isUiPreviewAllowed() && (
                   <Pressable
                     cssInterop={false}
                     accessibilityRole="button"

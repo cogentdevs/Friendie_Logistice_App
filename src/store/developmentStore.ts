@@ -1,5 +1,6 @@
+import { useAuthStore } from './authStore';
 import { create } from 'zustand';
-import { appConfig } from '../constants/appConfig';
+import { isUiPreviewAllowed } from '../constants/appConfig';
 // In-memory UI navigation only. Never persisted or treated as authentication.
 export const useDevelopmentStore = create<{
   previewActive: boolean;
@@ -12,7 +13,7 @@ export const useDevelopmentStore = create<{
   authEntryRequested: false,
   requestLogin: () => set({ previewActive: false, authEntryRequested: true }),
   enterPreview: () => {
-    if (__DEV__ && appConfig.uiPreviewEnabled)
+    if (isUiPreviewAllowed())
       set({ previewActive: true, authEntryRequested: false });
   },
   exitPreview: () => set({ previewActive: false }),
@@ -20,8 +21,8 @@ export const useDevelopmentStore = create<{
 
 export function isUiPreviewActive() {
   return (
-    __DEV__ &&
-    appConfig.uiPreviewEnabled &&
+    useAuthStore.getState().status !== 'authenticated' &&
+    isUiPreviewAllowed() &&
     useDevelopmentStore.getState().previewActive
   );
 }

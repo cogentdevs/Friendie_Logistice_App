@@ -1,3 +1,4 @@
+import { useAuthStore } from '../../../store/authStore';
 import { getDemoListing, isListingDemoMode } from '../development/demoListings';
 import { z } from 'zod';
 import { listingSchema } from './listingsService';
@@ -14,7 +15,8 @@ export const listingDetailSchema = listingSchema.extend({
   status: z.enum(['active', 'completed', 'expired', 'unavailable', 'deleted']),
   requestStatus: z
     .enum(['none', 'pending', 'accepted', 'rejected', 'cancelled'])
-    .optional(),
+    .optional()
+    .catch(undefined),
   coverImageUrl: httpsUrl.optional().nullable(),
   itemTypes: z.array(z.string().min(1)).optional(),
   weight: z
@@ -50,6 +52,10 @@ export async function getListingDetails(
       'Listing details are currently unavailable. Please try again later.',
       'unknown',
     );
+  const owner =
+    useAuthStore.getState().status === 'authenticated'
+      ? useAuthStore.getState().user?.id
+      : undefined;
   const { data } = await apiClient.get<unknown>(
     endpoints.listings + '/' + encodeURIComponent(id),
     { signal },
@@ -60,13 +66,46 @@ export async function getListingDetails(
       'The listing response did not match this listing.',
       'unknown',
     );
+  const currentOwner =
+    useAuthStore.getState().status === 'authenticated'
+      ? useAuthStore.getState().user?.id
+      : undefined;
+  if (owner !== currentOwner)
+    throw new ApiError('Session changed. Reload this listing.', 'cancelled');
+  if (!owner) {
+    // Never publish backend contact metadata or private request state into a guest cache.
+    const publicDetail = { ...result };
+    delete publicDetail.contact;
+    delete publicDetail.requestStatus;
+    return publicDetail;
+  }
+  // The accepted-request/participant contact contract has not been verified.
+  // Do not publish phone metadata merely because the viewer signed in.
+  if (result.contact) {
+    delete result.contact.phone;
+    delete result.contact.callPermitted;
+  }
   return result;
 }
-export function permittedPhone(detail: ListingDetail): string | undefined {
-  const contact = detail.contact;
-  if (contact?.callPermitted !== true || !contact.phone) return;
-  const phone = contact.phone.replace(/[\s()-]/g, '');
-  return /^\+?[0-9]{7,15}$/.test(phone) ? phone : undefined;
+export function permittedPhone(_detail: ListingDetail): string | undefined {
+  // Fail closed until Laravel provides a verified accepted-request AND participant proof.
+  // Authentication and a callPermitted flag alone are insufficient.
+  return undefined;
+}
+// Only listing availability/ownership is established by the existing detail model.
+// The proposed requestStatus field has no verified current-viewer/participant semantics.
+export function requestReviewUnavailableReason(
+  detail: ListingDetail,
+  userId?: number,
+): string | undefined {
+  if (detail.status !== 'active')
+    return detail.status === 'expired'
+      ? 'This listing has expired.'
+      : detail.status === 'deleted'
+      ? 'This listing has been deleted.'
+      : 'This listing is unavailable.';
+  if (userId === detail.ownerId) return 'You cannot request your own listing.';
+  return undefined;
 }
 export function requestUnavailableReason(
   detail: ListingDetail,

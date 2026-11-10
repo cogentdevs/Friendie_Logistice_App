@@ -1,4 +1,3 @@
-import { useDevelopmentStore } from '../../../store/developmentStore';
 import { isListingDemoMode } from '../development/demoListings';
 import { ApiError } from '../../../types/api';
 import { useInfiniteQuery } from '@tanstack/react-query';
@@ -6,8 +5,7 @@ import { getListings } from '../services/listingsService';
 import { useSearchStore } from '../../search/store/searchStore';
 import { useLocationStore } from '../../location/store/locationStore';
 export function useListings(enabled = true) {
-  const preview = useDevelopmentStore(state => state.previewActive);
-  const demo = preview && isListingDemoMode();
+  const demo = isListingDemoMode();
   const filters = useSearchStore(state => state.filters);
   const location = useLocationStore(state => state.selection);
   return useInfiniteQuery({

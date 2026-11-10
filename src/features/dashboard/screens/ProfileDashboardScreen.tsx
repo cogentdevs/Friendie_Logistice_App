@@ -25,7 +25,7 @@ import { AppText } from '../../../components/ui/AppText';
 import { AppButton } from '../../../components/ui/AppButton';
 import { colors } from '../../../theme';
 import { ApiError } from '../../../types/api';
-import { useDevelopmentStore } from '../../../store/developmentStore';
+import { requireAuth } from '../../auth/services/authFlowCoordinator';
 import { useMyListingsTabs } from '../../listings/store/myListingsStore';
 import { useProfileDashboard } from '../hooks/useProfileDashboard';
 import { DashboardStatCard } from '../components/DashboardStatCard';
@@ -153,7 +153,12 @@ export function ProfileDashboardScreen({ navigation }: Props) {
             {unauthorized ? (
               <AppButton
                 title="Sign In"
-                onPress={() => useDevelopmentStore.getState().requestLogin()}
+                onPress={() =>
+                  requireAuth({
+                    type: 'OPEN_ACCOUNT',
+                    params: { destination: 'ProfileDashboard' },
+                  })
+                }
               />
             ) : (
               <AppButton

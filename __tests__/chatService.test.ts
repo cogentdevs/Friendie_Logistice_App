@@ -63,22 +63,20 @@ test('sending requires verified idempotency and retry reuses the exact key', asy
 test('cross-conversation payloads are rejected and opaque cursors are supported', async () => {
   appConfig.apiBaseUrl = 'https://example.test';
   appConfig.chatApiVerified = true;
-  const get = jest
-    .spyOn(apiClient, 'get')
-    .mockResolvedValue({
-      data: {
-        data: [
-          {
-            id: 'm1',
-            conversationId: 'other',
-            senderId: 8,
-            body: 'hello',
-            createdAt: '2026-11-05T10:00:00Z',
-          },
-        ],
-        nextCursor: null,
-      },
-    });
+  const get = jest.spyOn(apiClient, 'get').mockResolvedValue({
+    data: {
+      data: [
+        {
+          id: 'm1',
+          conversationId: 'other',
+          senderId: 8,
+          body: 'hello',
+          createdAt: '2026-11-05T10:00:00Z',
+        },
+      ],
+      nextCursor: null,
+    },
+  });
   await expect(getMessages('42', 'opaque/cursor==')).rejects.toThrow(
     'unavailable',
   );
@@ -86,4 +84,22 @@ test('cross-conversation payloads are rejected and opaque cursors are supported'
     signal: undefined,
     params: { before: 'opaque/cursor==' },
   });
+});
+
+test('private messages arriving after an account change are discarded', async () => {
+  appConfig.apiBaseUrl = 'https://example.test';
+  appConfig.chatApiVerified = true;
+  let finish!: (value: any) => void;
+  jest.spyOn(apiClient, 'get').mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        finish = resolve;
+      }),
+  );
+  const pending = getMessages('42', null);
+  useAuthStore
+    .getState()
+    .setUser({ id: 9, name: 'Other', email: 'other@example.test' });
+  finish({ data: { data: [], nextCursor: null } });
+  await expect(pending).rejects.toMatchObject({ kind: 'cancelled' });
 });

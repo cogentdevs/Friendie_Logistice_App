@@ -49,11 +49,15 @@ test('successful Sanctum contract stores token securely before loading the valid
     return { data: { data: user } };
   });
   await authService.login(credentials);
-  expect(apiClient.post).toHaveBeenCalledWith('/auth/login', {
-    email: 'traveller@example.test',
-    password: 'fixture password',
-    device_name: 'Friendie mobile',
-  });
+  expect(apiClient.post).toHaveBeenCalledWith(
+    '/auth/login',
+    {
+      email: 'traveller@example.test',
+      password: 'fixture password',
+      device_name: 'Friendie mobile',
+    },
+    { signal: expect.any(AbortSignal) },
+  );
   expect(secureStorage.setToken).toHaveBeenCalledWith('fixture-token');
   expect(events).toEqual(['stored', 'profile']);
   expect(useAuthStore.getState().status).toBe('authenticated');
