@@ -103,9 +103,23 @@ export function FiltersScreen({ navigation }: Props) {
     draft.resolveManual(value);
   };
   const locationFields = [
-    { label: 'Country', value: reference?.country.name },
-    { label: 'City', value: reference?.city.name },
-    { label: 'Area (Optional)', value: reference?.area?.name },
+    {
+      label: 'Country',
+      value:
+        draft.mode === 'gps'
+          ? draft.gps?.address?.countryName
+          : reference?.country.name,
+    },
+    {
+      label: 'City',
+      value:
+        draft.mode === 'gps' ? draft.gps?.address?.city : reference?.city.name,
+    },
+    {
+      label: 'Area (Optional)',
+      value:
+        draft.mode === 'gps' ? draft.gps?.address?.area : reference?.area?.name,
+    },
   ];
   return (
     <SafeScreen
@@ -225,6 +239,13 @@ export function FiltersScreen({ navigation }: Props) {
               : 'Choose a resolved location or enter an exact point.'}
           </AppText>
         )}
+        {draft.mode === 'gps' && !!draft.gps?.addressMessage && (
+          <AppText variant="caption" accessibilityLiveRegion="polite">
+            Address labels are unavailable or incomplete. Your device point is
+            retained for radius search; switch to manual mode to edit the
+            address.
+          </AppText>
+        )}
         <View>
           <View style={styles.radiusHeader}>
             <AppText color={colors.navy} style={styles.heading}>
@@ -300,21 +321,17 @@ export function FiltersScreen({ navigation }: Props) {
                 ]}
               >
                 <AppText
-                  color={
-                    draft.mode === 'manual' && item.value
-                      ? colors.navy
-                      : colors.textMuted
-                  }
+                  color={item.value ? colors.navy : colors.textMuted}
                   variant="bodySmall"
                   style={styles.fieldValue}
                 >
-                  {draft.mode === 'manual'
-                    ? item.value ??
-                      'Select ' + item.label.replace(' (Optional)', '')
-                    : draft.mode === 'gps'
-                    ? 'Not available'
-                    : 'Any ' +
-                      item.label.replace(' (Optional)', '').toLowerCase()}
+                  {item.value ??
+                    (draft.mode === 'manual'
+                      ? 'Select ' + item.label.replace(' (Optional)', '')
+                      : draft.mode === 'gps'
+                      ? 'Not available'
+                      : 'Any ' +
+                        item.label.replace(' (Optional)', '').toLowerCase())}
                 </AppText>
                 <ChevronDown size={18} color={colors.secondary} />
               </Pressable>
@@ -440,8 +457,9 @@ export function FiltersScreen({ navigation }: Props) {
         <RouteLocationPicker
           title="Manual radius location"
           value={reference}
+          initialPoint={draft.manual?.coordinates}
+          initialAddress={draft.manual?.address}
           requireCoordinates
-          allowGps={false}
           onSelect={choose}
           onClose={() => setPicker(null)}
         />

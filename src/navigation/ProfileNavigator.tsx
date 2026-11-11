@@ -4,6 +4,10 @@ import { ProfileScreen } from '../features/profile/screens/ProfileScreen';
 import React from 'react';
 import { ActivityIndicator } from 'react-native';
 import { useAuthStore } from '../store/authStore';
+import {
+  isStaticTestingPreviewActive,
+  useDevelopmentStore,
+} from '../store/developmentStore';
 import { GuestProfileScreen } from '../features/profile/screens/GuestProfileScreen';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ProfileStackParamList } from './navigationTypes';
@@ -13,9 +17,11 @@ import { EditProfileScreen } from '../features/profile/screens/EditProfileScreen
 function ProfileEntry(props: React.ComponentProps<typeof ProfileScreen>) {
   const status = useAuthStore(state => state.status);
   const user = useAuthStore(state => state.user);
+  const preview = useDevelopmentStore(state => state.previewActive);
   if (status === 'restoring')
     return <ActivityIndicator accessibilityLabel="Checking your session" />;
-  return status === 'authenticated' && user ? (
+  return (status === 'authenticated' && user) ||
+    (preview && isStaticTestingPreviewActive()) ? (
     <ProfileScreen {...props} />
   ) : (
     <GuestProfileScreen />

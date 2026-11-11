@@ -213,3 +213,86 @@ test('protected pending action uses real authentication even when UI testing pre
   expect(textPresent('Sign in unavailable.')).toBe(true);
   clearAuthFlow();
 });
+
+test('STATIC_TESTING guarded login accepts demo credentials without creating a session', async () => {
+  const { useDevelopmentStore } = require('../src/store/developmentStore');
+  const previousStatic = appConfig.staticTestingBuild;
+  const previousTesting = appConfig.testingUiPreview;
+  const login = jest.spyOn(authService, 'login');
+  try {
+    appConfig.staticTestingBuild = true;
+    appConfig.testingUiPreview = true;
+    appConfig.uiPreviewEnabled = true;
+    jest.replaceProperty(
+      globalThis as typeof globalThis & { __DEV__: boolean },
+      '__DEV__',
+      false,
+    );
+    useDevelopmentStore.getState().exitPreview();
+    await Renderer.act(async () => {
+      beginAuthFlow({ type: 'OPEN_MESSAGES' });
+    });
+    await fill('demo@friendie.test', 'wrong-password');
+    await press('Sign In');
+    expect(useDevelopmentStore.getState().previewActive).toBe(false);
+    await fill('demo@friendie.test', 'Friendie@123');
+    await press('Sign In');
+    expect(useDevelopmentStore.getState().previewActive).toBe(true);
+    expect(useAuthStore.getState().status).toBe('guest');
+    expect(login).not.toHaveBeenCalled();
+  } finally {
+    appConfig.staticTestingBuild = previousStatic;
+    appConfig.testingUiPreview = previousTesting;
+    useDevelopmentStore.getState().exitPreview();
+    clearAuthFlow();
+  }
+});
+
+test('Login reveals the focused password after the keyboard opens and retains scrolling', async () => {
+  const { Keyboard, ScrollView } = require('react-native');
+  const {
+    ScreenContainer,
+  } = require('../src/components/layout/ScreenContainer');
+  const scroll = jest.fn();
+  const nativeInput = { isFocused: () => true, focus: jest.fn() };
+  let keyboardShown: (() => void) | undefined;
+  jest.spyOn(Keyboard, 'isVisible').mockReturnValue(false);
+  jest
+    .spyOn(Keyboard, 'addListener')
+    .mockImplementation((...args: unknown[]) => {
+      const [event, listener] = args;
+      if (event === 'keyboardDidShow' && typeof listener === 'function')
+        keyboardShown = () => listener();
+      return { remove: jest.fn() };
+    });
+  await Renderer.act(async () => {
+    tree.unmount();
+    tree = Renderer.create(
+      <QueryClientProvider client={client}>
+        <LoginScreen
+          navigation={{ navigate } as any}
+          route={{ key: 'login-keyboard', name: 'Login' }}
+        />
+      </QueryClientProvider>,
+    );
+  });
+  // Attach native handles as supplied by the mounted ScrollView/TextInput.
+  const container = tree.root.findByType(ScreenContainer);
+  container.props.scrollRef.current = {
+    scrollResponderScrollNativeHandleToKeyboard: scroll,
+  };
+  const { AppInput } = require('../src/components/ui/AppInput');
+  const password = tree.root
+    .findAllByType(AppInput)
+    .find((node: any) => node.props.label === 'Password')!;
+  // React 19 exposes ref as a prop on the forwarded input component.
+  password.props.ref(nativeInput);
+  await Renderer.act(async () => {
+    password.props.onFocus();
+    keyboardShown?.();
+  });
+  expect(scroll).toHaveBeenCalledWith(nativeInput, expect.any(Number), true);
+  expect(tree.root.findByType(ScrollView).props.keyboardShouldPersistTaps).toBe(
+    'handled',
+  );
+});

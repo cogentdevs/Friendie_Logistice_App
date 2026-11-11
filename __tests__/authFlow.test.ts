@@ -229,3 +229,26 @@ test('logout clears an unfinished pending flow', async () => {
   await logoutSession(new QueryClient());
   expect(useAuthFlowStore.getState().flow).toBeNull();
 });
+
+test('explicit static preview resumes the pending carry form once without authentication', () => {
+  const { useDevelopmentStore } = require('../src/store/developmentStore');
+  const previousStatic = appConfig.staticTestingBuild;
+  const previousUi = appConfig.uiPreviewEnabled;
+  try {
+    appConfig.staticTestingBuild = true;
+    appConfig.uiPreviewEnabled = true;
+    requireAuth({ type: 'POST_LISTING', params: { listingType: 'carry' } });
+    useDevelopmentStore.getState().enterPreview();
+    coordinateAuthentication();
+    expect(useAuthStore.getState().status).toBe('guest');
+    expect(useAuthFlowStore.getState().flow).toBeNull();
+    expect(navigate).toHaveBeenLastCalledWith('AppDrawer', authActionTarget({ type: 'POST_LISTING', params: { listingType: 'carry' } }));
+    const calls = navigate.mock.calls.length;
+    coordinateAuthentication();
+    expect(navigate).toHaveBeenCalledTimes(calls);
+  } finally {
+    appConfig.staticTestingBuild = previousStatic;
+    appConfig.uiPreviewEnabled = previousUi;
+    useDevelopmentStore.getState().exitPreview();
+  }
+});

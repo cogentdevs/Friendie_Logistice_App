@@ -63,7 +63,16 @@ test('route and optional weight/date validation reject invalid search values', (
   );
   expect(
     homeSearchSchema.safeParse({ ...valid, from: null, to: null }).success,
-  ).toBe(false);
+  ).toBe(true);
+  expect(
+    homeSearchSchema.safeParse({
+      ...valid,
+      from: undefined,
+      to: undefined,
+      query: 'Dubai',
+    }).success,
+  ).toBe(true);
+  expect(homeSearchSchema.safeParse({ ...valid, to: null }).success).toBe(true);
   expect(homeSearchSchema.safeParse({ ...valid, to: valid.from }).success).toBe(
     false,
   );

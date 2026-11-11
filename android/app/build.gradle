@@ -7,6 +7,8 @@ apply plugin: "com.facebook.react"
  * By default you don't need to apply any configuration, just uncomment the lines you need.
  */
 react {
+    // Match the existing Metro startup limit on this Windows build workspace.
+    extraPackagerArgs = ["--max-workers", "2"]
     /* Folders */
     //   The root of your project, i.e. where "package.json" lives. Default is '../..'
     // root = file("../../")
@@ -118,6 +120,9 @@ android {
         }
     }
     buildTypes {
+        configureEach {
+            buildConfigField "boolean", "STATIC_TESTING", "false"
+        }
         debug {
             signingConfig signingConfigs.debug
         }
@@ -127,6 +132,15 @@ android {
             signingConfig signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+        staticTesting {
+            initWith release
+            manifestPlaceholders.usesCleartextTraffic = "false"
+            matchingFallbacks = ['release']
+            applicationIdSuffix ".static_testing"
+            versionNameSuffix "-STATIC_TESTING"
+            resValue "string", "app_name", "Friendie STATIC TESTING"
+            buildConfigField "boolean", "STATIC_TESTING", "true"
         }
     }
 }

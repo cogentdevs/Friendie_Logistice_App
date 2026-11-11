@@ -1,5 +1,9 @@
 import { create } from 'zustand';
-import { Coordinates, LocationSelection } from '../../location/types/location';
+import {
+  Coordinates,
+  LocationSelection,
+  ResolvedAddress,
+} from '../../location/types/location';
 import {
   useLocationStore,
   validateLocation,
@@ -15,9 +19,15 @@ import {
 } from '../../location/services/filterLocationService';
 import { RouteLocation } from '../types/search';
 import { useSearchStore } from './searchStore';
-type GpsPoint = Coordinates & { accuracyMeters: number; capturedAt: number };
+type GpsPoint = Coordinates & {
+  accuracyMeters: number;
+  capturedAt: number;
+  address?: ResolvedAddress;
+  addressMessage?: string;
+};
 type ManualPoint = {
   reference?: RouteLocation;
+  address?: ResolvedAddress;
   coordinates: Coordinates;
   kind: 'pin' | 'reference';
 };
@@ -108,6 +118,12 @@ export const useFilterDraftStore = create<Draft>((set, get) => ({
             longitude: f.longitude,
             accuracyMeters: f.accuracyMeters,
             capturedAt: f.capturedAt,
+            address: {
+              countryName: f.countryName,
+              countryCode: f.countryCode,
+              city: f.cityName,
+              area: f.areaName,
+            },
           };
         if (f.source === 'manual')
           manual = {
@@ -153,6 +169,7 @@ export const useFilterDraftStore = create<Draft>((set, get) => ({
     });
   },
   selectGps: async () => {
+    if (get().pending && get().mode === 'gps') return;
     const revision = get().revision + 1;
     set({
       mode: 'gps',
@@ -174,13 +191,25 @@ export const useFilterDraftStore = create<Draft>((set, get) => ({
         });
     }
   },
-  selectManual: () =>
+  selectManual: () => {
+    const gps = get().gps;
     set({
       mode: 'manual',
+      // An explicit switch can reuse this device point; never replace an existing manual selection.
+      manual:
+        get().manual ??
+        (gps
+          ? {
+              coordinates: { latitude: gps.latitude, longitude: gps.longitude },
+              kind: 'pin',
+              address: gps.address,
+            }
+          : undefined),
       pending: false,
       problem: undefined,
       revision: get().revision + 1,
-    }),
+    });
+  },
   resolveManual: async value => {
     const revision = get().revision + 1;
     set({
@@ -265,7 +294,14 @@ export const useFilterDraftStore = create<Draft>((set, get) => ({
       selection = {
         mode: 'radius',
         filter: {
-          ...state.gps,
+          latitude: state.gps.latitude,
+          longitude: state.gps.longitude,
+          accuracyMeters: state.gps.accuracyMeters,
+          capturedAt: state.gps.capturedAt,
+          countryName: state.gps.address?.countryName,
+          countryCode: state.gps.address?.countryCode,
+          cityName: state.gps.address?.city,
+          areaName: state.gps.address?.area,
           source: 'gps',
           radiusKm: state.radiusKm,
           centerKind: 'gps',
@@ -295,13 +331,11 @@ export const useFilterDraftStore = create<Draft>((set, get) => ({
     if (selection.mode === 'worldwide')
       useLocationStore.getState().useWorldwide();
     else useLocationStore.getState().setLocation(selection.filter);
-    useSearchStore
-      .getState()
-      .setFilters({
-        verifiedOnly: state.verifiedOnly,
-        availableNow: state.availableNow,
-        radiusTarget: state.target,
-      });
+    useSearchStore.getState().setFilters({
+      verifiedOnly: state.verifiedOnly,
+      availableNow: state.availableNow,
+      radiusTarget: state.target,
+    });
     set({ appliedKey: appliedKey(), problem: undefined });
     return true;
   },

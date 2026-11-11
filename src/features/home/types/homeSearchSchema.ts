@@ -11,23 +11,11 @@ export const homeSearchSchema = z
     query: z.string().trim().max(200),
     category: z.string(),
     weight: z.string().trim(),
-    from: routeLocationSchema.nullable(),
-    to: routeLocationSchema.nullable(),
+    from: routeLocationSchema.nullish(),
+    to: routeLocationSchema.nullish(),
     dates: dateRangeSchema.optional(),
   })
   .superRefine((v, ctx) => {
-    if (!v.from)
-      ctx.addIssue({
-        code: 'custom',
-        path: ['from'],
-        message: 'Select an origin location',
-      });
-    if (!v.to)
-      ctx.addIssue({
-        code: 'custom',
-        path: ['to'],
-        message: 'Select a destination location',
-      });
     if (v.from && v.to && sameLocation(v.from, v.to))
       ctx.addIssue({
         code: 'custom',

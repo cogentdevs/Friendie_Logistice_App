@@ -1,6 +1,6 @@
 import { useAuthStore } from './authStore';
 import { create } from 'zustand';
-import { isUiPreviewAllowed } from '../constants/appConfig';
+import { appConfig, isUiPreviewAllowed } from '../constants/appConfig';
 // In-memory UI navigation only. Never persisted or treated as authentication.
 export const useDevelopmentStore = create<{
   previewActive: boolean;
@@ -25,4 +25,9 @@ export function isUiPreviewActive() {
     isUiPreviewAllowed() &&
     useDevelopmentStore.getState().previewActive
   );
+}
+
+// Explicit testing build only: UI access, never a server session or contact authorization.
+export function isStaticTestingPreviewActive() {
+  return appConfig.staticTestingBuild && isUiPreviewActive();
 }

@@ -4,7 +4,7 @@ import { DisclaimerScreen } from '../features/legal/screens/DisclaimerScreen';
 import { ContactSupportScreen } from '../features/support/screens/ContactSupportScreen';
 import { TermsConditionsScreen } from '../features/legal/screens/TermsConditionsScreen';
 import { PrivacyPolicyScreen } from '../features/legal/screens/PrivacyPolicyScreen';
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   cancelAuthentication,
   coordinateAuthentication,
@@ -43,6 +43,12 @@ const theme = {
   },
 };
 export function RootNavigator() {
+  // Per-launch visibility is independent of persisted onboarding completion.
+  const [splashElapsed, setSplashElapsed] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setSplashElapsed(true), 1000);
+    return () => clearTimeout(timer);
+  }, []);
   const {
     ready,
     status: startupStatus,
@@ -83,7 +89,7 @@ export function RootNavigator() {
       ? 'requested-auth-' + sessionEpoch
       : needsOnboarding
       ? 'onboarding'
-      : preview
+      : preview && !appConfig.staticTestingBuild
       ? 'preview'
       : 'main-' + sessionEpoch;
   if (error)
@@ -96,7 +102,7 @@ export function RootNavigator() {
         />
       </SafeScreen>
     );
-  if (!ready) return <SplashScreen />;
+  if (!ready || !splashElapsed) return <SplashScreen />;
   return (
     <NavigationContainer
       ref={navigationRef}

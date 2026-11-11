@@ -6,6 +6,9 @@ buildscript {
         targetSdkVersion = 36
         ndkVersion = "27.1.12297006"
         kotlinVersion = "2.2.10"
+        // Compile GPS and Maps against the same Location API (class/interface ABI).
+        playServicesLocationVersion = "21.3.0"
+        googlePlayServicesLocationVersion = playServicesLocationVersion
     }
     repositories {
         google()

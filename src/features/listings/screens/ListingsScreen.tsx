@@ -33,25 +33,32 @@ import { ListingCard } from '../components/ListingCard';
 import { useListingBookmarks } from '../store/bookmarkStore';
 import { useSearchStore } from '../../search/store/searchStore';
 import { useLocationStore } from '../../location/store/locationStore';
+import { useBrowseFiltersStore } from '../store/browseFiltersStore';
 import { useAuthStore } from '../../../store/authStore';
 import { locationLabel, displayRange } from '../../search/types/search';
 
 type Navigation = { setOptions: (options: Record<string, unknown>) => void };
 function Results({
+  browse = false,
   navigation,
   onBack,
   onFilters,
   onDetails,
 }: {
+  browse?: boolean;
   navigation: Navigation;
   onBack: () => void;
   onFilters: () => void;
   onDetails: (id: number) => void;
 }) {
   const focused = useIsFocused();
-  const query = useListings(focused);
-  const filters = useSearchStore(state => state.filters),
-    location = useLocationStore(state => state.selection);
+  const query = useListings(focused, browse);
+  const searchFilters = useSearchStore(state => state.filters),
+    searchLocation = useLocationStore(state => state.selection);
+  const browseFilters = useBrowseFiltersStore(state => state.filters),
+    browseLocation = useBrowseFiltersStore(state => state.location);
+  const filters = browse ? browseFilters : searchFilters;
+  const location = browse ? browseLocation : searchLocation;
   const owner = useAuthStore(state => state.user?.id);
   const bookmarks = useListingBookmarks();
   const loadBookmarks = bookmarks.load;
@@ -113,7 +120,9 @@ function Results({
     }
   }, []);
   const chips: { key: string; label: string; remove: () => void }[] = [];
-  const update = useSearchStore.getState().setFilters;
+  const update = browse
+    ? useBrowseFiltersStore.getState().setFilters
+    : useSearchStore.getState().setFilters;
   if (filters.destinationCountry)
     chips.push({
       key: 'destinationCountry',
@@ -158,7 +167,10 @@ function Results({
         ' km (' +
         (filters.radiusTarget === 'destination' ? 'To' : 'From') +
         ')',
-      remove: () => useLocationStore.getState().useWorldwide(),
+      remove: () =>
+        browse
+          ? useBrowseFiltersStore.getState().setLocation({ mode: 'worldwide' })
+          : useLocationStore.getState().useWorldwide(),
     });
   if (filters.type)
     chips.push({
@@ -357,6 +369,7 @@ export function ListingsScreen({
   );
   return (
     <Results
+      browse
       navigation={navigation}
       onBack={back}
       onFilters={filters}

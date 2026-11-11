@@ -1,9 +1,13 @@
 import { useAuthFlowStore } from '../store/authFlowStore';
-import { cancelAuthentication } from '../services/authFlowCoordinator';
-import React, { useEffect, useRef, useState } from 'react';
+import {
+  cancelAuthentication,
+  coordinateAuthentication,
+} from '../services/authFlowCoordinator';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Keyboard,
   Pressable,
+  ScrollView,
   StatusBar,
   StyleSheet,
   TextInput,
@@ -41,6 +45,29 @@ export function LoginScreen({ navigation }: Props) {
   const guarded = useAuthFlowStore(state => !!state.flow);
   const login = useLogin(controller.current.signal);
   const passwordRef = useRef<React.ComponentRef<typeof TextInput>>(null);
+  const emailRef = useRef<React.ComponentRef<typeof TextInput>>(null);
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const focusedInput = useRef<React.ComponentRef<typeof TextInput> | null>(
+    null,
+  );
+  const revealFocusedInput = useCallback(() => {
+    const input = focusedInput.current;
+    if (input?.isFocused()) {
+      scrollRef.current?.scrollResponderScrollNativeHandleToKeyboard(
+        input,
+        spacing.lg,
+        true,
+      );
+    }
+  }, []);
+  useEffect(() => {
+    if (!focused) return;
+    const subscription = Keyboard.addListener(
+      'keyboardDidShow',
+      revealFocusedInput,
+    );
+    return () => subscription.remove();
+  }, [focused, revealFocusedInput]);
   const submitting = useRef(false);
   const [showPassword, setShowPassword] = useState(false);
   const busy = form.formState.isSubmitting || login.isPending;
@@ -87,9 +114,12 @@ export function LoginScreen({ navigation }: Props) {
       return;
     }
     useDevelopmentStore.getState().enterPreview();
+    coordinateAuthentication();
   });
   const submit = () =>
-    isUiPreviewAllowed() && !guarded ? openTestingPreview() : authenticate();
+    isUiPreviewAllowed() && (!guarded || appConfig.staticTestingBuild)
+      ? openTestingPreview()
+      : authenticate();
   const EyeIcon = showPassword ? EyeOff : Eye;
   return (
     <SafeScreen
@@ -97,8 +127,12 @@ export function LoginScreen({ navigation }: Props) {
       backgroundColor={colors.white}
     >
       {focused && <StatusBar barStyle="dark-content" />}
-      <KeyboardScreen>
-        <ScreenContainer backgroundColor={colors.white} style={styles.content}>
+      <KeyboardScreen androidBehavior="height">
+        <ScreenContainer
+          scrollRef={scrollRef}
+          backgroundColor={colors.white}
+          style={styles.content}
+        >
           {guarded && (
             <Pressable
               cssInterop={false}
@@ -128,12 +162,13 @@ export function LoginScreen({ navigation }: Props) {
               Welcome back! Please sign in to your account.
             </AppText>
           </View>
-          {appConfig.uiPreviewEnabled && !guarded && (
-            <AppText variant="caption" color={colors.primary}>
-              UI testing: sign in with the supplied demo credentials. No real
-              account is created.
-            </AppText>
-          )}
+          {appConfig.uiPreviewEnabled &&
+            (!guarded || appConfig.staticTestingBuild) && (
+              <AppText variant="caption" color={colors.primary}>
+                UI testing: sign in with the supplied demo credentials. No real
+                account is created.
+              </AppText>
+            )}
           <View style={styles.form}>
             <Controller
               control={form.control}
@@ -143,8 +178,15 @@ export function LoginScreen({ navigation }: Props) {
                 fieldState,
               }) => (
                 <AppInput
-                  ref={ref}
+                  ref={input => {
+                    emailRef.current = input;
+                    ref(input);
+                  }}
                   label="Email Address"
+                  onFocus={() => {
+                    focusedInput.current = emailRef.current;
+                    if (Keyboard.isVisible()) revealFocusedInput();
+                  }}
                   hideLabel
                   placeholder="Email Address"
                   leftIcon={<Mail size={21} color={colors.secondary} />}
@@ -180,6 +222,10 @@ export function LoginScreen({ navigation }: Props) {
                     ref(input);
                   }}
                   label="Password"
+                  onFocus={() => {
+                    focusedInput.current = passwordRef.current;
+                    if (Keyboard.isVisible()) revealFocusedInput();
+                  }}
                   hideLabel
                   placeholder="Password"
                   leftIcon={<LockKeyhole size={21} color={colors.secondary} />}

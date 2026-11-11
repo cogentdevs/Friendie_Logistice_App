@@ -1,4 +1,5 @@
-import { locationService, LocationError } from './locationService';
+import { LocationError } from './locationService';
+import { detectCurrentLocation } from './currentLocationService';
 import { placesService } from './placesService';
 import { appConfig } from '../../../constants/appConfig';
 import { Coordinates } from '../types/location';
@@ -16,7 +17,7 @@ export function validatePoint(point: Coordinates) {
     throw new LocationError('unavailable');
 }
 export async function readFilterGps() {
-  const fix = await locationService.currentPosition();
+  const fix = await detectCurrentLocation();
   validatePoint(fix);
   if (
     !Number.isFinite(fix.accuracyMeters) ||
@@ -24,7 +25,7 @@ export async function readFilterGps() {
     fix.accuracyMeters > maxGpsAccuracyMeters
   )
     throw new LocationError('inaccurate');
-  return { ...fix, capturedAt: Date.now() };
+  return fix;
 }
 export async function resolveFilterReference(input: RouteLocation) {
   const reference = routeLocationSchema.parse(input);

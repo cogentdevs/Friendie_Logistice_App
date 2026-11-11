@@ -4,11 +4,17 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { getListings } from '../services/listingsService';
 import { useSearchStore } from '../../search/store/searchStore';
 import { useLocationStore } from '../../location/store/locationStore';
-export function useListings(enabled = true) {
+import { useBrowseFiltersStore } from '../store/browseFiltersStore';
+import { useEffect } from 'react';
+export function useListings(enabled = true, browse = false) {
   const demo = isListingDemoMode();
-  const filters = useSearchStore(state => state.filters);
-  const location = useLocationStore(state => state.selection);
-  return useInfiniteQuery({
+  const searchFilters = useSearchStore(state => state.filters);
+  const searchLocation = useLocationStore(state => state.selection);
+  const browseFilters = useBrowseFiltersStore(state => state.filters);
+  const browseLocation = useBrowseFiltersStore(state => state.location);
+  const filters = browse ? browseFilters : searchFilters;
+  const location = browse ? browseLocation : searchLocation;
+  const query = useInfiniteQuery({
     enabled,
     retry: (failures, error) =>
       failures < 1 &&
@@ -29,4 +35,28 @@ export function useListings(enabled = true) {
         ? last.meta.current_page + 1
         : undefined,
   });
+  // The tiny local catalogue can fit its first page without producing a useful
+  // scroll event. Load its remaining pages proactively; real API search keeps
+  // the existing demand-driven pagination.
+  const { hasNextPage, isFetching, isError, fetchNextPage } = query;
+  useEffect(() => {
+    if (
+      enabled &&
+      browse &&
+      demo &&
+      hasNextPage &&
+      !isFetching &&
+      !isError
+    )
+      fetchNextPage({ cancelRefetch: false }).catch(() => {});
+  }, [
+    enabled,
+    browse,
+    demo,
+    hasNextPage,
+    isFetching,
+    isError,
+    fetchNextPage,
+  ]);
+  return query;
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Keyboard, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useMutation } from '@tanstack/react-query';
 import { SafeScreen } from '../../../components/layout/SafeScreen';
@@ -9,7 +9,9 @@ import { AppInput } from '../../../components/ui/AppInput';
 import { AppButton } from '../../../components/ui/AppButton';
 import { GradientButton } from '../../../components/ui/GradientButton';
 import { colors, spacing } from '../../../theme';
-import { locationService } from '../services/locationService';
+import { detectCurrentLocation } from '../services/currentLocationService';
+import { locationProblem } from '../services/filterLocationService';
+import type { Coordinates, ResolvedAddress } from '../types/location';
 import { RouteLocation, routeLocationSchema } from '../../search/types/search';
 
 type Props = {
@@ -19,6 +21,8 @@ type Props = {
   onSelect: (value: RouteLocation) => void;
   requireCoordinates?: boolean;
   allowGps?: boolean;
+  initialPoint?: Coordinates;
+  initialAddress?: ResolvedAddress;
   onClose: () => void;
 };
 export function RouteLocationPicker({
@@ -29,33 +33,62 @@ export function RouteLocationPicker({
   onClose,
   requireCoordinates = false,
   allowGps = true,
+  initialPoint,
+  initialAddress,
 }: Props) {
   const [country, setCountry] = useState(
-    value?.country.name ?? countryHint ?? '',
+    value?.country.name ?? initialAddress?.countryName ?? countryHint ?? '',
   );
-  const [code, setCode] = useState(value?.country.code ?? '');
-  const [city, setCity] = useState(value?.city.name ?? '');
-  const [area, setArea] = useState(value?.area?.name ?? '');
-  const [latitude, setLatitude] = useState(
-    value?.coordinates?.latitude.toString() ?? '',
+  const [code, setCode] = useState(
+    value?.country.code ?? initialAddress?.countryCode ?? '',
   );
-  const [longitude, setLongitude] = useState(
-    value?.coordinates?.longitude.toString() ?? '',
+  const [city, setCity] = useState(
+    value?.city.name ?? initialAddress?.city ?? '',
+  );
+  const [area, setArea] = useState(
+    value?.area?.name ?? initialAddress?.area ?? '',
+  );
+  const [coordinates, setCoordinates] = useState<Coordinates | undefined>(
+    value?.coordinates ?? initialPoint,
   );
   const [source, setSource] = useState<'gps' | 'manual'>(
     value?.source ?? 'manual',
   );
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const missingLabels = useRef(
+    new Set(
+      initialPoint
+        ? Object.entries({ country, code, city, area })
+            .filter(([, text]) => !text)
+            .map(([field]) => field)
+        : [],
+    ),
+  );
+  const generation = useRef(0);
+  const inFlight = useRef(false);
+  useEffect(
+    () => () => {
+      generation.current++;
+    },
+    [],
+  );
   const gps = useMutation({
-    mutationFn: () => locationService.currentPosition(),
+    mutationFn: detectCurrentLocation,
   });
-  const changeName = (setter: (text: string) => void) => (text: string) => {
-    setter(text);
-    setLatitude('');
-    setLongitude('');
-    setSource('manual');
-    setError('');
-  };
+  const changeName =
+    (setter: (text: string) => void, field: string) => (text: string) => {
+      setter(text);
+      // Completing missing labels after geocoder failure keeps the actual GPS point.
+      // Editing a resolved address means a new manual place, not the old GPS point.
+      if (!missingLabels.current.has(field)) {
+        setCoordinates(undefined);
+        setSource('manual');
+        setNotice('');
+        missingLabels.current.clear();
+      }
+      setError('');
+    };
   const select = () => {
     Keyboard.dismiss();
     if (
@@ -66,12 +99,10 @@ export function RouteLocationPicker({
       setError('Enter a country, its two-letter country code and a city.');
       return;
     }
-    if (requireCoordinates && (!latitude.trim() || !longitude.trim())) {
-      setError('Enter exact latitude and longitude to set the radius center.');
-      return;
-    }
-    if (Boolean(latitude.trim()) !== Boolean(longitude.trim())) {
-      setError('Enter both latitude and longitude, or leave both empty.');
+    if (requireCoordinates && !coordinates) {
+      setError(
+        'Use Current Location or select an existing resolved point to set the radius center.',
+      );
       return;
     }
     const sameCountry =
@@ -80,10 +111,8 @@ export function RouteLocationPicker({
     const sameCity = sameCountry && value?.city.name === city.trim();
     const sameArea = sameCity && (value?.area?.name ?? '') === area.trim();
     const samePoint =
-      value?.coordinates?.latitude ===
-        (latitude.trim() ? Number(latitude) : undefined) &&
-      value?.coordinates?.longitude ===
-        (longitude.trim() ? Number(longitude) : undefined);
+      value?.coordinates?.latitude === coordinates?.latitude &&
+      value?.coordinates?.longitude === coordinates?.longitude;
     const parsed = routeLocationSchema.safeParse({
       country: {
         name: country.trim(),
@@ -95,15 +124,11 @@ export function RouteLocationPicker({
         ? { name: area.trim(), id: sameArea ? value?.area?.id : undefined }
         : undefined,
       placeId: sameArea && samePoint ? value?.placeId : undefined,
-      coordinates: latitude.trim()
-        ? { latitude: Number(latitude), longitude: Number(longitude) }
-        : undefined,
+      coordinates,
       source,
     });
     if (!parsed.success) {
-      setError(
-        'Check the coordinates: latitude must be -90 to 90 and longitude -180 to 180.',
-      );
+      setError('Check the selected location and try again.');
       return;
     }
     onSelect(parsed.data);
@@ -135,14 +160,14 @@ export function RouteLocationPicker({
               </Pressable>
             </View>
             <AppText variant="bodySmall">
-              Enter the country and city. Add an area or coordinates to choose a
-              more precise location.
+              Use your current location to fill this form, or enter the country,
+              city and optional area manually.
             </AppText>
             <AppInput
               label="Country"
               value={country}
               onChangeText={text => {
-                changeName(setCountry)(text);
+                changeName(setCountry, 'country')(text);
                 setCode('');
                 setCity('');
                 setArea('');
@@ -155,7 +180,7 @@ export function RouteLocationPicker({
               maxLength={2}
               autoCapitalize="characters"
               onChangeText={text => {
-                changeName(setCode)(text);
+                changeName(setCode, 'code')(text);
                 setCity('');
                 setArea('');
               }}
@@ -165,7 +190,7 @@ export function RouteLocationPicker({
               label="City"
               value={city}
               onChangeText={text => {
-                changeName(setCity)(text);
+                changeName(setCity, 'city')(text);
                 setArea('');
               }}
               editable={!gps.isPending}
@@ -173,54 +198,59 @@ export function RouteLocationPicker({
             <AppInput
               label="Area (optional)"
               value={area}
-              onChangeText={changeName(setArea)}
-              editable={!gps.isPending}
-            />
-            <AppInput
-              label="Latitude (optional)"
-              value={latitude}
-              onChangeText={text => {
-                setLatitude(text);
-                setSource('manual');
-              }}
-              keyboardType="numbers-and-punctuation"
-              editable={!gps.isPending}
-            />
-            <AppInput
-              label="Longitude (optional)"
-              value={longitude}
-              onChangeText={text => {
-                setLongitude(text);
-                setSource('manual');
-              }}
-              keyboardType="numbers-and-punctuation"
+              onChangeText={changeName(setArea, 'area')}
               editable={!gps.isPending}
             />
             {allowGps && (
               <AppButton
-                title="Use current coordinates"
+                title="Use Current Location"
                 variant="secondary"
                 loading={gps.isPending}
                 onPress={async () => {
+                  if (inFlight.current) return;
+                  inFlight.current = true;
+                  const request = ++generation.current;
                   Keyboard.dismiss();
                   setError('');
+                  setNotice('');
                   try {
                     const result = await gps.mutateAsync();
-                    setLatitude(String(result.latitude));
-                    setLongitude(String(result.longitude));
+                    if (generation.current !== request) return;
+                    setCoordinates({
+                      latitude: result.latitude,
+                      longitude: result.longitude,
+                    });
+                    setCountry(result.address.countryName ?? '');
+                    setCode(result.address.countryCode ?? '');
+                    setCity(result.address.city ?? '');
+                    setArea(result.address.area ?? '');
                     setSource('gps');
-                  } catch {
-                    setError(
-                      'Current location is unavailable. Check location permission and device settings, or enter coordinates manually.',
+                    missingLabels.current = new Set(
+                      Object.entries({
+                        country: result.address.countryName,
+                        code: result.address.countryCode,
+                        city: result.address.city,
+                        area: result.address.area,
+                      })
+                        .filter(([, text]) => !text)
+                        .map(([field]) => field),
                     );
+                    setNotice(
+                      result.addressMessage ??
+                        'Location detected. You can review or edit the address before selecting.',
+                    );
+                  } catch (problem) {
+                    if (generation.current === request)
+                      setError(locationProblem(problem).message);
+                  } finally {
+                    inFlight.current = false;
                   }
                 }}
               />
             )}
-            {allowGps && (
-              <AppText variant="caption">
-                GPS supplies coordinates only. Confirm the country, city and
-                area before selecting.
+            {!!notice && (
+              <AppText variant="caption" accessibilityLiveRegion="polite">
+                {notice}
               </AppText>
             )}
             {!!error && (

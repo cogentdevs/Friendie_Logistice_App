@@ -1,3 +1,4 @@
+import { useBrowseFiltersStore } from '../src/features/listings/store/browseFiltersStore';
 import { RequestConfirmationDialog } from '../src/features/listings/components/RequestConfirmationDialog';
 import { ListingsScreen } from '../src/features/listings/screens/ListingsScreen';
 import { GuestProfileScreen } from '../src/features/profile/screens/GuestProfileScreen';
@@ -146,6 +147,7 @@ async function back() {
   await settle();
 }
 beforeEach(async () => {
+  useBrowseFiltersStore.getState().reset();
   cancelAuthentication();
   Object.defineProperty(AppState, 'currentState', {
     value: 'active',
@@ -635,6 +637,7 @@ test('UI testing credentials open Home without a real login, token or authentica
 
 test('Filters applies manual geometry through the existing Search stack and resets worldwide', async () => {
   useSearchStore.getState().reset();
+  useBrowseFiltersStore.getState().reset();
   useLocationStore.getState().useWorldwide();
   useFilterDraftStore.getState().reset();
   await mountGuest();
@@ -1645,3 +1648,76 @@ test('static marketplace browsing stays public while request, Post and Messages 
     appConfig.uiPreviewEnabled = originalUi;
   }
 });
+
+test('public Listings filters are isolated from intentional Home search and radius preferences', async () => {
+  await openPhase2GuestHome();
+  useSearchStore
+    .getState()
+    .setFilters({ query: 'London', category: 'Documents' });
+  useLocationStore.getState().setLocation({
+    source: 'manual',
+    latitude: 51.5,
+    longitude: -0.1,
+    radiusKm: 1,
+  });
+  const homeFilters = useSearchStore.getState().filters;
+  const homeLocation = useLocationStore.getState().selection;
+  await press('Listings');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('Listings');
+  expect(useBrowseFiltersStore.getState().filters).toEqual({});
+  await press('Filter listings');
+  expect(useSearchStore.getState().filters).toEqual({});
+  expect(useLocationStore.getState().selection).toEqual({ mode: 'worldwide' });
+  await press('Verified Users Only');
+  await press('Apply Filters');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('Listings');
+  expect(useBrowseFiltersStore.getState().filters.verifiedOnly).toBe(true);
+  expect(useSearchStore.getState().filters).toBe(homeFilters);
+  expect(useLocationStore.getState().selection).toBe(homeLocation);
+  await press('Go back');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('Home');
+  expect(useSearchStore.getState().filters.query).toBe('London');
+  expect(useAuthStore.getState().status).toBe('guest');
+});
+
+test.each([
+  ['Post', 'PostListing'],
+  ['Send Parcel', 'SendParcel'],
+  ['Carry Parcel', 'CarryParcel'],
+  ['Messages', 'Conversations'],
+] as const)('STATIC_TESTING demo Login resumes %s without a server session', async (entry, destination) => {
+  const previousStatic = appConfig.staticTestingBuild;
+  const previousUi = appConfig.uiPreviewEnabled;
+  try {
+    appConfig.staticTestingBuild = true;
+    appConfig.uiPreviewEnabled = true;
+    await openPhase2GuestHome();
+    await press(entry);
+    expect(navigationRef.getCurrentRoute()?.name).toBe('Login');
+    await press('Sign In');
+    await settle();
+    expect(navigationRef.getCurrentRoute()?.name).toBe(destination);
+    expect(useAuthStore.getState().status).toBe('guest');
+    expect(useDevelopmentStore.getState().previewActive).toBe(true);
+    expect(useAuthFlowStore.getState().flow).toBeNull();
+  } finally {
+    appConfig.staticTestingBuild = previousStatic;
+    appConfig.uiPreviewEnabled = previousUi;
+  }
+}, 30000);
+
+test('every cold launch shows Splash before returning guest Home without repeating onboarding', async () => {
+  const { SplashScreen } = require('../src/features/onboarding/screens/SplashScreen');
+  await AsyncStorage.setItem('friendie.preferences', JSON.stringify({ state: { onboardingComplete: true }, version: 0 }));
+  for (let launch = 0; launch < 2; launch++) {
+    await Renderer.act(async () => { tree = Renderer.create(<App />); });
+    expect(tree!.root.findAllByType(SplashScreen)).toHaveLength(1);
+    await Renderer.act(async () => { jest.advanceTimersByTime(999); });
+    expect(tree!.root.findAllByType(SplashScreen)).toHaveLength(1);
+    await Renderer.act(async () => { jest.advanceTimersByTime(1); });
+    await settle();
+    expect(tree!.root.findAllByType(SplashScreen)).toHaveLength(0);
+    expect(navigationRef.getCurrentRoute()?.name).toBe('Home');
+    await Renderer.act(async () => { tree!.unmount(); tree = undefined; });
+  }
+}, 30000);

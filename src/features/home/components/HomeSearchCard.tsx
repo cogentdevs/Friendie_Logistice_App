@@ -288,7 +288,6 @@ export function HomeSearchCard({
         <RouteLocationPicker
           title={picker === 'from' ? 'From Location' : 'Destination'}
           value={values[picker] ?? undefined}
-          allowGps={false}
           onClose={() => setPicker(null)}
           onSelect={value => {
             form.setValue(picker, value, {

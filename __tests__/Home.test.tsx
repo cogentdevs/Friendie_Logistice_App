@@ -139,8 +139,8 @@ test('route search validates, carries structured IDs/coordinates and weight, and
   const gps = jest.spyOn(locationService, 'currentPosition');
   await mount();
   await press('Search Listings');
-  expect(present('Select an origin location')).toBe(true);
-  expect(nav.navigate).not.toHaveBeenCalled();
+  expect(present('Select an origin location')).toBe(false);
+  expect(nav.navigate).toHaveBeenLastCalledWith('Results');
   await press('Select search origin');
   await Renderer.act(async () => {
     tree.root.findByType(RouteLocationPicker).props.onSelect(routeFixture.from);
@@ -324,8 +324,13 @@ test('keyword submission uses the same validated results flow and preserves adva
     );
   });
   await press('Submit keyword and selected filters');
-  expect(nav.navigate).not.toHaveBeenCalled();
-  expect(present('Select an origin location')).toBe(true);
+  expect(nav.navigate).toHaveBeenLastCalledWith('Results');
+  expect(present('Select an origin location')).toBe(false);
+  expect(useSearchStore.getState().filters).toMatchObject({
+    query: 'documents',
+    from: undefined,
+    to: undefined,
+  });
   for (const [label, value] of [
     ['Select search origin', routeFixture.from],
     ['Select search destination', routeFixture.to],

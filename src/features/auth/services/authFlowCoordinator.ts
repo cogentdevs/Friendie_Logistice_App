@@ -1,4 +1,5 @@
 import { Alert } from 'react-native';
+import { isStaticTestingPreviewActive } from '../../../store/developmentStore';
 import { navigationRef } from '../../../navigation/navigationRef';
 import { useAuthStore } from '../../../store/authStore';
 import {
@@ -74,7 +75,10 @@ export function coordinateAuthentication() {
     cancelAuthentication();
     return;
   }
-  if (auth.status === 'authenticated' && auth.user) {
+  if (
+    (auth.status === 'authenticated' && auth.user) ||
+    isStaticTestingPreviewActive()
+  ) {
     if (!flow && !authOpen) return;
     if (flow)
       useAuthFlowStore.setState({ flow: { ...flow, phase: 'resuming' } });

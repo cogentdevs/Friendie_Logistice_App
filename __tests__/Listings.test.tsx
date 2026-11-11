@@ -10,10 +10,13 @@ import { ListingsScreen } from '../src/features/listings/screens/ListingsScreen'
 import { formatPrice } from '../src/features/listings/components/ListingCard';
 import * as service from '../src/features/listings/services/listingsService';
 import { useSearchStore } from '../src/features/search/store/searchStore';
+import { useBrowseFiltersStore } from '../src/features/listings/store/browseFiltersStore';
 import { useLocationStore } from '../src/features/location/store/locationStore';
 import { useAuthStore } from '../src/store/authStore';
 import { useListingBookmarks } from '../src/features/listings/store/bookmarkStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { appConfig } from '../src/constants/appConfig';
+const previousStaticMarketplace = appConfig.staticMarketplaceEnabled;
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
   useIsFocused: () => true,
@@ -81,8 +84,12 @@ async function press(label: string) {
   await settle();
 }
 beforeEach(async () => {
+  // Service-mocked cases exercise normal API pagination; the real local
+  // catalogue case below explicitly enables fixtures and eager local pages.
+  appConfig.staticMarketplaceEnabled = false;
   clearAuthFlow();
   useSearchStore.getState().reset();
+  useBrowseFiltersStore.getState().reset();
   useLocationStore.getState().useWorldwide();
   useAuthStore.setState({ status: 'guest', user: null });
   useListingBookmarks.setState({ ids: [], owner: undefined });
@@ -91,6 +98,7 @@ beforeEach(async () => {
   navigation.navigate.mockClear();
 });
 afterEach(async () => {
+  appConfig.staticMarketplaceEnabled = previousStaticMarketplace;
   await Renderer.act(async () => {
     tree?.unmount();
     client?.clear();
@@ -110,7 +118,9 @@ test('real count, verified card, details, deduplicated pagination and filter rem
             ],
       meta: { current_page: page, last_page: 2, total: 2 },
     }));
-  useSearchStore.getState().setFilters({ verifiedOnly: true, type: 'carry' });
+  useBrowseFiltersStore
+    .getState()
+    .setFilters({ verifiedOnly: true, type: 'carry' });
   await mount();
   expect(navigation.setOptions.mock.calls.at(-1)![0].title).toBe(
     'Listings (2)',
@@ -127,7 +137,7 @@ test('real count, verified card, details, deduplicated pagination and filter rem
   expect(tree.root.findByType(FlatList).props.data).toHaveLength(2);
   expect(get).toHaveBeenCalledTimes(2);
   await press('Remove filter Verified only');
-  expect(useSearchStore.getState().filters.verifiedOnly).toBe(false);
+  expect(useBrowseFiltersStore.getState().filters.verifiedOnly).toBe(false);
   expect(get.mock.calls.at(-1)![1].verifiedOnly).toBe(false);
 });
 test('failed request exposes retry, no invented count, then empty state', async () => {
@@ -198,7 +208,7 @@ test('a late previous-filter response cannot replace current results', async () 
             meta: { current_page: 1, last_page: 1, total: 1 },
           },
     );
-  useSearchStore.getState().setFilters({ verifiedOnly: true });
+  useBrowseFiltersStore.getState().setFilters({ verifiedOnly: true });
   await mount();
   await press('Remove filter Verified only');
   expect(
@@ -244,4 +254,38 @@ test('a failed device bookmark write does not claim a saved listing', async () =
         'Could not save this listing on your device. Please try again.',
     ).length,
   ).toBeGreaterThan(0);
+});
+
+test('default public tab ignores Home filters and saved radius, paginates all eight, and preserves Home state', async () => {
+  appConfig.staticMarketplaceEnabled = true;
+  useSearchStore
+    .getState()
+    .setFilters({ query: 'London', category: 'Documents' });
+  useLocationStore.getState().setLocation({
+    source: 'manual',
+    latitude: 51.5,
+    longitude: -0.1,
+    radiusKm: 1,
+  });
+  const homeFilters = useSearchStore.getState().filters;
+  const homeLocation = useLocationStore.getState().selection;
+  const get = jest.spyOn(service, 'getListings');
+  await mount();
+  expect(get.mock.calls[0][1]).toEqual({});
+  expect(get.mock.calls[0][2]).toEqual({ mode: 'worldwide' });
+  expect(navigation.setOptions.mock.calls.at(-1)![0].title).toBe(
+    'Listings (8)',
+  );
+  await Renderer.act(async () => {
+    tree.root.findByType(FlatList).props.onEndReached();
+  });
+  await settle();
+  expect(tree.root.findByType(FlatList).props.data).toHaveLength(8);
+  expect(useSearchStore.getState().filters).toBe(homeFilters);
+  expect(useLocationStore.getState().selection).toBe(homeLocation);
+  await press('Open listing Traveller to Dubai');
+  expect(navigation.navigate).toHaveBeenCalledWith('ListingDetails', {
+    listingId: '900001',
+  });
+  expect(useAuthStore.getState().status).toBe('guest');
 });

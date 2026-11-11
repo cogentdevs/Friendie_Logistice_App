@@ -11,7 +11,10 @@ class AppMetadataModule(context: ReactApplicationContext) : ReactContextBaseJava
   override fun getConstants(): Map<String, Any> {
     val version = reactApplicationContext.packageManager
       .getPackageInfo(reactApplicationContext.packageName, 0).versionName
-    return if (version.isNullOrBlank()) emptyMap() else mapOf("version" to version)
+    return buildMap {
+      if (!version.isNullOrBlank()) put("version", version)
+      put("staticTesting", BuildConfig.STATIC_TESTING)
+    }
   }
 }
 

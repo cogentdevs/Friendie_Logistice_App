@@ -14,17 +14,20 @@ import {
 import { apiClient } from '../src/services/api/apiClient';
 const original = {
   enabled: appConfig.staticMarketplaceEnabled,
+  staticTesting: appConfig.staticTestingBuild,
   ui: appConfig.uiPreviewEnabled,
   testing: appConfig.testingUiPreview,
 };
 beforeEach(() => {
   appConfig.staticMarketplaceEnabled = true;
+  appConfig.staticTestingBuild = false;
   appConfig.uiPreviewEnabled = false;
   useDevelopmentStore.setState({ previewActive: false });
   useAuthStore.getState().clear();
 });
 afterEach(() => {
   appConfig.staticMarketplaceEnabled = original.enabled;
+  appConfig.staticTestingBuild = original.staticTesting;
   appConfig.uiPreviewEnabled = original.ui;
   appConfig.testingUiPreview = original.testing;
   useAuthStore.getState().clear();
@@ -123,3 +126,21 @@ test.each([
     expect(get).not.toHaveBeenCalled();
   },
 );
+
+test('explicit STATIC_TESTING native build permits release-runtime browsing without login or HTTP', async () => {
+  jest.replaceProperty(
+    globalThis as typeof globalThis & { __DEV__: boolean },
+    '__DEV__',
+    false,
+  );
+  appConfig.staticTestingBuild = true;
+  const get = jest.spyOn(apiClient, 'get');
+  expect(isStaticMarketplaceEnabled()).toBe(true);
+  expect(await homeService.categories()).toHaveLength(3);
+  expect(await homeService.destinations()).toHaveLength(7);
+  expect(await homeService.latest()).toHaveLength(3);
+  expect((await getListings(1, {}, { mode: 'worldwide' })).meta.total).toBe(8);
+  expect((await getListingDetails('900001')).id).toBe(900001);
+  expect(useAuthStore.getState().status).toBe('guest');
+  expect(get).not.toHaveBeenCalled();
+});

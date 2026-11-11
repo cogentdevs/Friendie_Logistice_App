@@ -1,7 +1,10 @@
 import { appConfig } from '../../../constants/appConfig';
-// Never enabled in a production runtime, including a release UI-preview build.
+// Only debug or the explicitly labelled native STATIC_TESTING build, never normal release.
 export function isStaticMarketplaceEnabled() {
-  return __DEV__ && appConfig.staticMarketplaceEnabled;
+  return (
+    (__DEV__ || appConfig.staticTestingBuild) &&
+    appConfig.staticMarketplaceEnabled
+  );
 }
 export class StaticMarketplaceDisabledError extends Error {
   constructor() {

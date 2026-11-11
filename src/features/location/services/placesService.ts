@@ -1,5 +1,7 @@
 import { apiClient } from '../../../services/api/apiClient';
 import { appConfig } from '../../../constants/appConfig';
+import { NativeModules, Platform } from 'react-native';
+import { z } from 'zod';
 import {
   Coordinates,
   PlaceSuggestion,
@@ -29,11 +31,26 @@ export const placesService: PlacesProvider = {
     ).data.data;
   },
   async reverseGeocode(coordinates, signal) {
-    return (
-      await apiClient.get<{ data: string }>(path('reverse'), {
-        params: coordinates,
-        signal,
+    if (signal?.aborted) throw Error('Address lookup cancelled.');
+    const native = NativeModules.FriendieGeocoder;
+    if (Platform.OS !== 'android' || typeof native?.reverse !== 'function')
+      throw Error('Address lookup is unavailable on this device.');
+    const result: unknown = await native.reverse(
+      coordinates.latitude,
+      coordinates.longitude,
+    );
+    if (signal?.aborted) throw Error('Address lookup cancelled.');
+    return z
+      .object({
+        countryName: z.string().trim().min(1).optional(),
+        countryCode: z
+          .string()
+          .regex(/^[A-Z]{2}$/)
+          .optional()
+          .catch(undefined),
+        city: z.string().trim().min(1).optional(),
+        area: z.string().trim().min(1).optional(),
       })
-    ).data.data;
+      .parse(result);
   },
 };

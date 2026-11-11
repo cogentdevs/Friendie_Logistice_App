@@ -4,6 +4,10 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigationTypes';
 import { useAuthStore } from '../../store/authStore';
+import {
+  isStaticTestingPreviewActive,
+  useDevelopmentStore,
+} from '../../store/developmentStore';
 import { SafeScreen } from '../../components/layout/SafeScreen';
 import { ScreenContainer } from '../../components/layout/ScreenContainer';
 import { AppText } from '../../components/ui/AppText';
@@ -21,9 +25,14 @@ export function withAccountAccess<P extends object>(
   return function AccountScreen(props: P) {
     const status = useAuthStore(state => state.status);
     const user = useAuthStore(state => state.user);
+    const preview = useDevelopmentStore(state => state.previewActive);
     const navigation =
       useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-    if (status === 'authenticated' && user) return <Screen {...props} />;
+    if (
+      (status === 'authenticated' && user) ||
+      (preview && isStaticTestingPreviewActive())
+    )
+      return <Screen {...props} />;
     return (
       <SafeScreen
         edges={['top', 'left', 'right', 'bottom']}

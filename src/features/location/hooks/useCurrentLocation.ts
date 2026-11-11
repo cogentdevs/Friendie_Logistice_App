@@ -1,16 +1,23 @@
 import { useMutation } from '@tanstack/react-query';
-import { locationService } from '../services/locationService';
+import { detectCurrentLocation } from '../services/currentLocationService';
 import { useLocationStore } from '../store/locationStore';
 // Only an explicit user action calls this. A newer manual choice wins over pending GPS.
 export function useCurrentLocation() {
   return useMutation({
-    mutationFn: () => locationService.currentPosition(),
+    mutationFn: detectCurrentLocation,
     onMutate: () => ({ selection: useLocationStore.getState().selection }),
     onSuccess: (coordinates, _variables, context) => {
       const state = useLocationStore.getState();
       if (state.selection !== context.selection) return;
       state.setLocation({
-        ...coordinates,
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
+        accuracyMeters: coordinates.accuracyMeters,
+        capturedAt: coordinates.capturedAt,
+        countryName: coordinates.address.countryName,
+        countryCode: coordinates.address.countryCode,
+        cityName: coordinates.address.city,
+        areaName: coordinates.address.area,
         source: 'gps',
         radiusKm:
           state.selection.mode === 'radius'

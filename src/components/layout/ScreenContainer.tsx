@@ -12,13 +12,16 @@ export function ScreenContainer({
   scroll = true,
   style,
   backgroundColor = colors.offWhite,
+  scrollRef,
 }: PropsWithChildren<{
   scroll?: boolean;
   style?: StyleProp<ViewStyle>;
   backgroundColor?: string;
+  scrollRef?: React.Ref<React.ComponentRef<typeof ScrollView>>;
 }>) {
   return scroll ? (
     <ScrollView
+      ref={scrollRef}
       style={[styles.root, { backgroundColor }]}
       contentContainerStyle={[styles.content, style]}
       keyboardShouldPersistTaps="handled"

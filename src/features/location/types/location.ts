@@ -3,6 +3,12 @@ export interface Coordinates {
   latitude: number;
   longitude: number;
 }
+export interface ResolvedAddress {
+  countryName?: string;
+  countryCode?: string;
+  city?: string;
+  area?: string;
+}
 export interface LocationSearchFilter extends Coordinates {
   source: LocationSource;
   radiusKm: number;
@@ -31,5 +37,5 @@ export interface PlacesProvider {
   reverseGeocode: (
     coordinates: Coordinates,
     signal?: AbortSignal,
-  ) => Promise<string>;
+  ) => Promise<ResolvedAddress>;
 }

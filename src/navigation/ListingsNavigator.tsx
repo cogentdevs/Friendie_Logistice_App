@@ -3,7 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ListingsStackParamList } from './navigationTypes';
 import { stackOptions, backOptions } from './stackOptions';
 import { ListingsScreen } from '../features/listings/screens/ListingsScreen';
-import { ListingsFiltersScreen } from '../features/search/screens/FiltersScreen';
+import { BrowseFiltersScreen } from '../features/listings/screens/BrowseFiltersScreen';
 import { ListingDetailsScreen } from '../features/listings/screens/ListingDetailsScreen';
 const Stack = createNativeStackNavigator<ListingsStackParamList>();
 export function ListingsNavigator() {
@@ -21,7 +21,7 @@ export function ListingsNavigator() {
       />
       <Stack.Screen
         name="Filters"
-        component={ListingsFiltersScreen}
+        component={BrowseFiltersScreen}
         options={{ title: 'Filters', headerTitleAlign: 'center' }}
       />
       <Stack.Screen
