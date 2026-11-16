@@ -1,9 +1,18 @@
 {
-  "apiBaseUrl": "",
+  "apiBaseUrl": "http://127.0.0.1:8000/api/v1",
+  "registrationApiEnabled": true,
+  "loginApiEnabled": true,
+  "registrationCountryIds": {
+    "PK": 179,
+    "AE": 2,
+    "SA": 194,
+    "GB": 233,
+    "US": 235
+  },
   "termsUrl": "",
   "privacyUrl": "",
   "authApiVerified": false,
-  "profileApiVerified": false,
+  "profileApiVerified": true,
   "myListingsApiVerified": false,
   "listingsApiVerified": false,
   "listingDetailsApiVerified": false,

@@ -171,10 +171,12 @@ test('Forgot Password and Register open existing routes; unsupported providers a
 test('testing release rejects blank and wrong credentials, then accepts the UI testing login without an auth request', async () => {
   const { useDevelopmentStore } = require('../src/store/developmentStore');
   const previousTesting = appConfig.testingUiPreview;
+  const previousStatic = appConfig.staticTestingBuild;
   const loginRequest = jest.spyOn(authService, 'login');
   try {
     appConfig.uiPreviewEnabled = true;
     appConfig.testingUiPreview = true;
+    appConfig.staticTestingBuild = true;
     jest.replaceProperty(
       globalThis as typeof globalThis & { __DEV__: boolean },
       '__DEV__',
@@ -193,6 +195,7 @@ test('testing release rejects blank and wrong credentials, then accepts the UI t
     expect(loginRequest).not.toHaveBeenCalled();
   } finally {
     appConfig.testingUiPreview = previousTesting;
+    appConfig.staticTestingBuild = previousStatic;
     useDevelopmentStore.getState().exitPreview();
   }
 });
@@ -295,4 +298,12 @@ test('Login reveals the focused password after the keyboard opens and retains sc
   expect(tree.root.findByType(ScrollView).props.keyboardShouldPersistTaps).toBe(
     'handled',
   );
+});
+
+test('real credentials use API even when testing preview is enabled', async () => {
+  appConfig.uiPreviewEnabled = true;
+  const login = jest.spyOn(authService, 'login').mockResolvedValue();
+  await fill('real-member@example.test', 'RealPassword123!');
+  await press('Sign In');
+  expect(login).toHaveBeenCalledTimes(1);
 });

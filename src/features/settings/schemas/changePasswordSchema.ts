@@ -10,13 +10,24 @@ export type PasswordPolicy = {
 export function createChangePasswordSchema(policy: PasswordPolicy | null) {
   return z
     .object({
-      currentPassword: z.string().min(1, 'Enter your current password'),
+      currentPassword: z
+        .string()
+        .min(1, 'Enter your current password')
+        .max(255, 'Use no more than 255 characters'),
       newPassword: z.string().min(1, 'Enter a new password'),
       confirmPassword: z.string().min(1, 'Confirm your new password'),
     })
     .superRefine((value, ctx) => {
       const invalid = (message: string) =>
         ctx.addIssue({ code: 'custom', path: ['newPassword'], message });
+      const bytes = Array.from(value.newPassword).reduce((length, char) => {
+        const point = char.codePointAt(0)!;
+        return (
+          length + (point < 128 ? 1 : point < 2048 ? 2 : point < 65536 ? 3 : 4)
+        );
+      }, 0);
+      if (bytes > 72)
+        invalid('Use no more than 72 bytes for your new password');
       if (value.newPassword !== value.confirmPassword)
         ctx.addIssue({
           code: 'custom',

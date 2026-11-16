@@ -4,6 +4,7 @@ export const forgotPasswordSchema = z.object({
     .string()
     .trim()
     .min(1, 'Enter your email address')
+    .max(255, 'Email must be 255 characters or fewer')
     .toLowerCase()
     .pipe(z.email('Enter a valid email address')),
 });

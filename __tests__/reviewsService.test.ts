@@ -8,6 +8,7 @@ import { apiClient } from '../src/services/api/apiClient';
 import { useAuthStore } from '../src/store/authStore';
 import { useDevelopmentStore } from '../src/store/developmentStore';
 import { appConfig } from '../src/constants/appConfig';
+import * as visitorService from '../src/features/reviews/services/visitorReviewsService';
 const raw = {
   id: 1,
   from_user_id: 7,
@@ -47,10 +48,27 @@ test('observed website semantics map received versus authored correctly, without
     mapWebsiteReview({ ...raw, rating: 9 }, 'visitors', 8, true),
   ).toThrow();
 });
-test('production never requests HTML web routes or guesses mobile endpoints; UI preview is isolated', async () => {
+test('verified Received/Given adapters reuse the shared service while UI preview stays isolated', async () => {
   const get = jest.spyOn(apiClient, 'get');
-  await expect(reviewsService.received(8, 1)).rejects.toThrow('not connected');
-  await expect(reviewsService.authored(8, 1)).rejects.toThrow('not connected');
+  const empty = {
+    items: [],
+    nextPage: null,
+    pagination: { current_page: 1, per_page: 20, total: 0, last_page: 1 },
+  };
+  jest
+    .spyOn(visitorService, 'getReceivedVisitorReviews')
+    .mockResolvedValue(empty);
+  jest.spyOn(visitorService, 'getGivenReviews').mockResolvedValue(empty);
+  await expect(reviewsService.received(8, 1)).resolves.toMatchObject({
+    items: [],
+    total: 0,
+  });
+  await expect(reviewsService.authored(8, 1)).resolves.toMatchObject({
+    items: [],
+    total: 0,
+  });
+  expect(visitorService.getReceivedVisitorReviews).toHaveBeenCalledTimes(1);
+  expect(visitorService.getGivenReviews).toHaveBeenCalledTimes(1);
   await expect(reviewsService.summary(8)).rejects.toThrow('unavailable');
   expect(get).not.toHaveBeenCalled();
   appConfig.uiPreviewEnabled = true;

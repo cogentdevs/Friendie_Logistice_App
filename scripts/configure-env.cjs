@@ -8,8 +8,27 @@ if (fs.existsSync(file))
     if (match)
       values[match[1]] = match[2].trim().replace(/^(['"])(.*)\1$/, '$2');
   }
+let registrationCountryIds = {};
+if (values.REGISTRATION_COUNTRY_IDS) {
+  registrationCountryIds = JSON.parse(values.REGISTRATION_COUNTRY_IDS);
+  if (
+    !registrationCountryIds ||
+    typeof registrationCountryIds !== 'object' ||
+    Array.isArray(registrationCountryIds) ||
+    Object.entries(registrationCountryIds).some(
+      ([code, id]) =>
+        !/^[A-Z]{2}$/.test(code) || !Number.isSafeInteger(id) || id < 1,
+    )
+  )
+    throw Error(
+      'REGISTRATION_COUNTRY_IDS must map ISO country codes to positive integer IDs verified against the configured server.',
+    );
+}
 const config = {
   apiBaseUrl: values.API_BASE_URL || '',
+  registrationApiEnabled: values.REGISTRATION_API_ENABLED === 'true',
+  loginApiEnabled: values.LOGIN_API_ENABLED === 'true',
+  registrationCountryIds,
   termsUrl: values.TERMS_URL || '',
   privacyUrl: values.PRIVACY_URL || '',
   authApiVerified: values.AUTH_API_VERIFIED === 'true',

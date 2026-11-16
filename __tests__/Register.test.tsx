@@ -7,6 +7,12 @@ import { registrationService } from '../src/features/auth/services/registrationS
 import { appConfig } from '../src/constants/appConfig';
 import { ApiError } from '../src/types/api';
 import { useAuthStore } from '../src/store/authStore';
+import * as toast from '../src/components/ui/AppToast';
+import {
+  beginAuthFlow,
+  clearAuthFlow,
+  useAuthFlowStore,
+} from '../src/features/auth/store/authFlowStore';
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
   useIsFocused: () => true,
@@ -19,6 +25,7 @@ const legal = {
   privacyUrl: appConfig.privacyUrl,
 };
 beforeEach(async () => {
+  clearAuthFlow();
   client = new QueryClient({
     defaultOptions: { mutations: { retry: false, gcTime: 0 } },
   });
@@ -48,6 +55,7 @@ afterEach(async () => {
   Object.assign(appConfig, legal);
   jest.restoreAllMocks();
   navigate.mockClear();
+  clearAuthFlow();
 });
 const input = (label: string) =>
   tree.root
@@ -89,6 +97,7 @@ test('consent gates CTA, visibility toggles are independent and Sign In/back wor
   expect(navigate).toHaveBeenNthCalledWith(2, 'Login');
 });
 test('invalid form stays local with inline field errors', async () => {
+  const log = jest.spyOn(console, 'info').mockImplementation(() => {});
   const send = jest.spyOn(registrationService, 'register');
   await press('I agree to the Terms & Conditions and Privacy Policy');
   await press('Create Account');
@@ -96,6 +105,9 @@ test('invalid form stays local with inline field errors', async () => {
   expect(textPresent('Enter a valid email address')).toBe(true);
   expect(textPresent('Use at least 8 characters')).toBe(true);
   expect(send).not.toHaveBeenCalled();
+  expect(log).toHaveBeenCalledWith('[Register] FORM_VALIDATION_FAILED', {
+    invalidFields: expect.arrayContaining(['fullName', 'email', 'password']),
+  });
 });
 test('changing country revalidates phone and preserves unrelated fields', async () => {
   await fill();
@@ -168,4 +180,44 @@ test('pending submission disables controls and prevents duplicate requests', asy
   await Renderer.act(async () => {
     reject(new ApiError('Unavailable', 'unknown'));
   });
+});
+
+test('accepted registration clears sensitive values, shows neutral verification feedback and returns to Login without authentication', async () => {
+  beginAuthFlow({ type: 'POST_LISTING', params: { listingType: 'carry' } });
+  const message =
+    'If registration is available for these details, a verification email will be sent. Please check your inbox and spam folder.';
+  jest
+    .spyOn(registrationService, 'register')
+    .mockResolvedValue({ message, requiresEmailVerification: true });
+  const notification = jest.spyOn(toast, 'showToast');
+  await fill();
+  await press('Create Account');
+  expect(notification).toHaveBeenCalledWith(
+    'Check your email',
+    message,
+    'success',
+  );
+  expect(input('Password').props.value).toBe('');
+  expect(input('Confirm Password').props.value).toBe('');
+  expect(useAuthStore.getState().status).toBe('guest');
+  expect(navigate).toHaveBeenCalledWith('Login');
+  expect(useAuthFlowStore.getState().flow?.action).toEqual({
+    type: 'POST_LISTING',
+    params: { listingType: 'carry' },
+  });
+});
+
+test('backend name, confirmation and country mappings display in existing input error slots', async () => {
+  jest.spyOn(registrationService, 'register').mockRejectedValue(
+    new ApiError('Validation failed', 'validation', 422, {
+      fullName: ['The name field is required.'],
+      confirmPassword: ['The password confirmation does not match.'],
+      country: ['The selected country id is invalid.'],
+    }),
+  );
+  await fill();
+  await press('Create Account');
+  expect(textPresent('The name field is required.')).toBe(true);
+  expect(textPresent('The password confirmation does not match.')).toBe(true);
+  expect(textPresent('The selected country id is invalid.')).toBe(true);
 });

@@ -38,6 +38,7 @@ import { colors } from '../../../theme';
 import { useAuthStore } from '../../../store/authStore';
 import { useProfile } from '../hooks/useProfile';
 import { logoutSession } from '../../auth/services/sessionLogout';
+import { logoutErrorMessage } from '../../auth/services/logoutApiService';
 import { LogoutConfirmationModal } from '../../auth/components/LogoutConfirmationModal';
 import { ProfileMenuRow } from '../components/ProfileMenuRow';
 type Props = CompositeScreenProps<
@@ -50,10 +51,10 @@ export function ProfileScreen({ navigation }: Props) {
     client = useQueryClient();
   const { query, demo } = useProfile(),
     sessionUser = useAuthStore(state => state.user);
-  const identity = (!query.isError ? query.data : undefined) ?? sessionUser;
+  const identity = query.data ?? sessionUser;
   const name = identity?.name.trim() || 'Traveller',
     verified = identity?.verified === true;
-  const statistics = query.isError ? undefined : query.data?.statistics;
+  const statistics = query.data?.statistics;
   const [avatarFailed, setAvatarFailed] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
@@ -74,8 +75,8 @@ export function ProfileScreen({ navigation }: Props) {
           'Signed out',
           'Some local app data could not be removed. Please clear it before sharing this device.',
         );
-    } catch {
-      setError('Could not clear your secure session. Please try Logout again.');
+    } catch (failure) {
+      setError(logoutErrorMessage(failure));
     } finally {
       setLogoutVisible(false);
       loggingOut.current = false;

@@ -1,5 +1,12 @@
 import React, { useRef, useState } from 'react';
-import { Keyboard, Pressable, StatusBar, StyleSheet, View } from 'react-native';
+import {
+  Keyboard,
+  Pressable,
+  StatusBar,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
@@ -15,7 +22,9 @@ import { AppText } from '../../../components/ui/AppText';
 import { AppInput } from '../../../components/ui/AppInput';
 import { GradientButton } from '../../../components/ui/GradientButton';
 import { colors } from '../../../theme';
+import { ApiError } from '../../../types/api';
 import { isUiPreviewAllowed } from '../../../constants/appConfig';
+import { useFormKeyboardScroll } from '../hooks/useFormKeyboardScroll';
 import {
   forgotPasswordSchema,
   ForgotPasswordValues,
@@ -31,6 +40,8 @@ export const resetConfirmation =
   "If an account exists for this email, you'll receive password reset instructions shortly.";
 export function ForgotPasswordScreen({ navigation }: Props) {
   const focused = useIsFocused();
+  const keyboard = useFormKeyboardScroll(focused);
+  const emailRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const form = useForm<ForgotPasswordValues>({
     resolver: zodResolver(forgotPasswordSchema),
     mode: 'onBlur',
@@ -61,7 +72,7 @@ export function ForgotPasswordScreen({ navigation }: Props) {
       setConfirmation('accepted');
     } catch (error) {
       const message = passwordResetError(error);
-      if (message === 'Check the email address format and try again.')
+      if (error instanceof ApiError && error.kind === 'validation')
         form.setError('email', { type: 'server', message });
       else form.setError('root.server', { message });
     } finally {
@@ -75,8 +86,14 @@ export function ForgotPasswordScreen({ navigation }: Props) {
       backgroundColor={colors.white}
     >
       {focused && <StatusBar barStyle="dark-content" />}
-      <KeyboardScreen>
-        <ScreenContainer backgroundColor={colors.white} style={styles.content}>
+      <KeyboardScreen androidBehavior="height">
+        <ScreenContainer
+          scrollRef={keyboard.scrollRef}
+          onLayout={keyboard.revealFocusedInput}
+          onContentSizeChange={keyboard.revealFocusedInput}
+          backgroundColor={colors.white}
+          style={styles.content}
+        >
           <View style={styles.header}>
             <Pressable
               cssInterop={false}
@@ -152,7 +169,10 @@ export function ForgotPasswordScreen({ navigation }: Props) {
                       fieldState,
                     }) => (
                       <AppInput
-                        ref={ref}
+                        ref={input => {
+                          emailRef.current = input;
+                          ref(input);
+                        }}
                         label="Email Address"
                         hideLabel
                         placeholder="Enter your email address"
@@ -162,7 +182,10 @@ export function ForgotPasswordScreen({ navigation }: Props) {
                           onChange(text);
                           form.clearErrors('root');
                         }}
-                        onFocus={() => setEmailFocused(true)}
+                        onFocus={() => {
+                          setEmailFocused(true);
+                          keyboard.focusInput(emailRef.current);
+                        }}
                         onBlur={() => {
                           setEmailFocused(false);
                           onBlur();

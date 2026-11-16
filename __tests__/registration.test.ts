@@ -7,6 +7,7 @@ import {
   registrationService,
 } from '../src/features/auth/services/registrationService';
 import { apiClient } from '../src/services/api/apiClient';
+import { appConfig } from '../src/constants/appConfig';
 const valid = {
   fullName: '  Demo Traveller  ',
   email: '  DEMO@Example.test ',
@@ -63,10 +64,35 @@ test('requires consent, minimum password, matching confirmation and nonempty nam
     );
 });
 test('unverified registration never calls a guessed endpoint or creates a session', async () => {
+  const enabled = appConfig.registrationApiEnabled;
+  appConfig.registrationApiEnabled = false;
   const post = jest.spyOn(apiClient, 'post');
-  await expect(registrationService.register(valid)).rejects.toThrow(
-    'not connected yet',
-  );
-  expect(post).not.toHaveBeenCalled();
-  post.mockRestore();
+  try {
+    await expect(registrationService.register(valid)).rejects.toThrow(
+      'not configured',
+    );
+    expect(post).not.toHaveBeenCalled();
+  } finally {
+    appConfig.registrationApiEnabled = enabled;
+    post.mockRestore();
+  }
+});
+
+test('verified bcrypt byte limit rejects overlong ASCII and multibyte passwords', () => {
+  for (const password of ['a'.repeat(73), '🙂'.repeat(19)]) {
+    expect(
+      registerSchema.safeParse({
+        ...valid,
+        password,
+        confirmPassword: password,
+      }).success,
+    ).toBe(false);
+  }
+  expect(
+    registerSchema.safeParse({
+      ...valid,
+      password: 'a'.repeat(72),
+      confirmPassword: 'a'.repeat(72),
+    }).success,
+  ).toBe(true);
 });

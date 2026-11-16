@@ -7,6 +7,8 @@ import { useAuthStore } from '../src/store/authStore';
 import { useDevelopmentStore } from '../src/store/developmentStore';
 import { appConfig } from '../src/constants/appConfig';
 import { apiClient } from '../src/services/api/apiClient';
+import { reviewsService } from '../src/features/reviews/services/reviewsService';
+import { ApiError } from '../src/types/api';
 const previous = appConfig.uiPreviewEnabled;
 beforeEach(() => {
   useAuthStore
@@ -21,12 +23,10 @@ afterEach(() => {
 test.each([0, 12])(
   'uses authoritative active total %s, never current page length',
   async total => {
-    jest
-      .spyOn(listings, 'getMyListings')
-      .mockResolvedValue({
-        data: [],
-        meta: { current_page: 1, last_page: 2, total },
-      });
+    jest.spyOn(listings, 'getMyListings').mockResolvedValue({
+      data: [],
+      meta: { current_page: 1, last_page: 2, total },
+    });
     await expect(dashboardService.activeListings()).resolves.toBe(total);
     expect(listings.getMyListings).toHaveBeenCalledWith('active', 1, undefined);
   },
@@ -46,6 +46,9 @@ test('unknown count remains unknown and conflicting totals fail', async () => {
   await expect(dashboardService.activeListings()).rejects.toThrow('confirm');
 });
 test('unverified metrics do not guess endpoints or substitute other metrics', async () => {
+  jest
+    .spyOn(reviewsService, 'received')
+    .mockRejectedValue(new ApiError('Received reviews unavailable', 'unknown'));
   const get = jest.spyOn(apiClient, 'get');
   await expect(dashboardService.totalReviews()).rejects.toThrow('unavailable');
   await expect(dashboardService.newMessages()).rejects.toThrow('unavailable');
@@ -53,6 +56,11 @@ test('unverified metrics do not guess endpoints or substitute other metrics', as
   expect(get).not.toHaveBeenCalled();
 });
 test('visitor empty preview is isolated from real authenticated accounts', async () => {
+  jest.spyOn(reviewsService, 'received').mockImplementation(async owner => {
+    if (owner === 'demo')
+      return { items: [], nextPage: null, visibilityConfirmed: true as const };
+    throw new ApiError('Received reviews unavailable', 'unknown');
+  });
   appConfig.uiPreviewEnabled = true;
   useDevelopmentStore.setState({ previewActive: true });
   expect(dashboardIsDemo()).toBe(false);

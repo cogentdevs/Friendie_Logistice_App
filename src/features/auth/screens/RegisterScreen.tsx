@@ -36,7 +36,10 @@ import { colors } from '../../../theme';
 import { ApiError } from '../../../types/api';
 import { registerSchema, RegisterValues } from '../schemas/registerSchema';
 import { registrationService } from '../services/registrationService';
+import { logRegistrationEvent } from '../services/registrationDiagnostics';
 import { CallingCodeSelector } from '../components/CallingCodeSelector';
+import { showToast } from '../../../components/ui/AppToast';
+import { useFormKeyboardScroll } from '../hooks/useFormKeyboardScroll';
 
 type Props = CompositeScreenProps<
   NativeStackScreenProps<AuthStackParamList, 'Register'>,
@@ -77,6 +80,7 @@ const fields = [
 type TextField = (typeof fields)[number]['name'];
 export function RegisterScreen({ navigation }: Props) {
   const focused = useIsFocused();
+  const keyboard = useFormKeyboardScroll(focused);
   const form = useForm<RegisterValues>({
     resolver: zodResolver(registerSchema),
     mode: 'onBlur',
@@ -115,50 +119,70 @@ export function RegisterScreen({ navigation }: Props) {
     navigation.navigate(
       kind === 'privacy' ? 'PrivacyPolicy' : 'TermsConditions',
     );
-  const submit = form.handleSubmit(async values => {
-    if (submitting.current) return;
-    submitting.current = true;
-    Keyboard.dismiss();
-    form.clearErrors('root');
-    try {
-      await register.mutateAsync(values);
-      // No success navigation: the registration/session/verification contract is not yet verified.
-    } catch (error) {
-      const message =
-        error instanceof ApiError
-          ? error.kind === 'rate-limit'
-            ? 'Too many attempts. Please wait before trying again.'
-            : error.kind === 'network'
-            ? 'Unable to connect. Check your connection and try again.'
-            : error.kind === 'server'
-            ? 'Account creation is temporarily unavailable. Please try again later.'
-            : error.message
-          : 'Unable to create an account. Please try again.';
-      form.setError('root.server', { message });
-      if (error instanceof ApiError) {
-        let first: TextField | undefined;
-        for (const field of fields) {
-          const text = error.fields?.[field.name]?.[0];
-          if (typeof text === 'string' && text) {
-            form.setError(field.name, { type: 'server', message: text });
-            first ??= field.name;
+  const submit = form.handleSubmit(
+    async values => {
+      if (submitting.current) return;
+      submitting.current = true;
+      Keyboard.dismiss();
+      form.clearErrors('root');
+      try {
+        const result = await register.mutateAsync(values);
+        form.reset();
+        showToast('Check your email', result.message, 'success');
+        toLogin();
+      } catch (error) {
+        const message =
+          error instanceof ApiError
+            ? error.kind === 'rate-limit'
+              ? 'Too many attempts. Please wait before trying again.'
+              : error.kind === 'network'
+              ? 'Unable to connect. Check your connection and try again.'
+              : error.kind === 'server'
+              ? 'Account creation is temporarily unavailable. Please try again later.'
+              : error.message
+            : 'Unable to create an account. Please try again.';
+        form.setError('root.server', { message });
+        if (error instanceof ApiError) {
+          let first: TextField | undefined;
+          const countryError = error.fields?.country?.[0];
+          if (typeof countryError === 'string' && countryError) {
+            form.setError('country', { type: 'server', message: countryError });
+            first = 'phone';
           }
+          for (const field of fields) {
+            const text = error.fields?.[field.name]?.[0];
+            if (typeof text === 'string' && text) {
+              form.setError(field.name, { type: 'server', message: text });
+              first ??= field.name;
+            }
+          }
+          if (first) form.setFocus(first);
         }
-        if (first) form.setFocus(first);
+      } finally {
+        submitting.current = false;
+        register.reset();
       }
-    } finally {
-      submitting.current = false;
-      register.reset();
-    }
-  });
+    },
+    errors => {
+      logRegistrationEvent('FORM_VALIDATION_FAILED', {
+        invalidFields: Object.keys(errors),
+      });
+    },
+  );
   return (
     <SafeScreen
       edges={['top', 'bottom', 'left', 'right']}
       backgroundColor={colors.white}
     >
       {focused && <StatusBar barStyle="dark-content" />}
-      <KeyboardScreen>
-        <ScreenContainer backgroundColor={colors.white} style={styles.content}>
+      <KeyboardScreen androidBehavior="height">
+        <ScreenContainer
+          scrollRef={keyboard.scrollRef}
+          onLayout={keyboard.revealFocusedInput}
+          onContentSizeChange={keyboard.revealFocusedInput}
+          backgroundColor={colors.white}
+          style={styles.content}
+        >
           <View style={styles.header}>
             <Pressable
               cssInterop={false}
@@ -216,6 +240,7 @@ export function RegisterScreen({ navigation }: Props) {
                               value={country}
                               disabled={busy}
                               onChange={selectedCountry => {
+                                form.clearErrors('country');
                                 form.setValue('country', selectedCountry, {
                                   shouldDirty: true,
                                 });
@@ -253,12 +278,20 @@ export function RegisterScreen({ navigation }: Props) {
                           ) : undefined
                         }
                         value={value}
+                        onFocus={() =>
+                          keyboard.focusInput(refs.current[field.name] ?? null)
+                        }
                         onChangeText={text => {
                           form.clearErrors('root');
                           onChange(text);
                         }}
                         onBlur={onBlur}
-                        error={fieldState.error?.message}
+                        error={
+                          fieldState.error?.message ??
+                          (field.name === 'phone'
+                            ? form.formState.errors.country?.message
+                            : undefined)
+                        }
                         editable={!busy}
                         keyboardType={
                           field.name === 'email'

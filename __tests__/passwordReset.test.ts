@@ -13,11 +13,11 @@ test('reset email is normalized and empty/invalid values rejected', () => {
     false,
   );
 });
-test('unverified service never calls a guessed endpoint or returns fake acceptance', async () => {
+test('invalid local input never calls the recovery endpoint', async () => {
   const post = jest.spyOn(apiClient, 'post');
   await expect(
-    passwordResetService.request({ email: 'demo@example.test' }),
-  ).rejects.toThrow('unavailable');
+    passwordResetService.request({ email: 'invalid' }),
+  ).rejects.toThrow();
   expect(post).not.toHaveBeenCalled();
   post.mockRestore();
 });

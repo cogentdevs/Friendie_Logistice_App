@@ -4,8 +4,12 @@ const staticTestingBuild =
   NativeModules.FriendieAppMetadata?.staticTesting === true;
 export const appConfig = {
   ...environment,
+  registrationCountryIds: environment.registrationCountryIds as Record<
+    string,
+    number
+  >,
   uiPreviewEnabled:
-    (__DEV__ || environment.testingUiPreview) && environment.uiPreviewEnabled,
+    (__DEV__ || staticTestingBuild) && environment.uiPreviewEnabled,
   navigationPreview: __DEV__ && environment.navigationPreview,
   // Public development catalogue; independent of authentication and UI login preview.
   staticTestingBuild,
@@ -15,5 +19,5 @@ export const appConfig = {
 };
 
 export function isUiPreviewAllowed() {
-  return appConfig.uiPreviewEnabled && (__DEV__ || appConfig.testingUiPreview);
+  return appConfig.uiPreviewEnabled && (__DEV__ || appConfig.staticTestingBuild);
 }

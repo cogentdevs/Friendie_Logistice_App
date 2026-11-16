@@ -1,5 +1,6 @@
+import * as toast from '../src/components/ui/AppToast';
 import React from 'react';
-import { Alert, TextInput } from 'react-native';
+import { TextInput } from 'react-native';
 import Renderer, { ReactTestRenderer } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChangePasswordScreen } from '../src/features/settings/screens/ChangePasswordScreen';
@@ -103,18 +104,18 @@ test('required fields and confirmation mismatch stay local', async () => {
   expect(present('Passwords do not match')).toBe(true);
   expect(update).not.toHaveBeenCalled();
 });
-test('retained-session success requires confirmation and clears every password', async () => {
-  const alert = jest.spyOn(Alert, 'alert');
+test('success uses Toast and clears every password', async () => {
+  const notification = jest.spyOn(toast, 'showToast');
   jest
     .spyOn(changePasswordService, 'update')
     .mockResolvedValue({ updated: true, session: 'retained' });
   const logout = jest.spyOn(sessions, 'logoutSession');
   await fill();
   await press('Change Password');
-  expect(alert).toHaveBeenCalledWith(
+  expect(notification).toHaveBeenCalledWith(
     'Password updated',
     expect.any(String),
-    expect.any(Array),
+    'success',
   );
   for (const label of [
     'Current Password',
@@ -125,7 +126,7 @@ test('retained-session success requires confirmation and clears every password',
   expect(logout).not.toHaveBeenCalled();
 });
 test('unexpected response cannot show success', async () => {
-  const alert = jest.spyOn(Alert, 'alert');
+  const notification = jest.spyOn(toast, 'showToast');
   jest
     .spyOn(changePasswordService, 'update')
     .mockResolvedValue(
@@ -133,40 +134,52 @@ test('unexpected response cannot show success', async () => {
     );
   await fill();
   await press('Change Password');
-  expect(alert).not.toHaveBeenCalled();
-  expect(
-    present('Unable to confirm the password update. Please try again.'),
-  ).toBe(true);
+  expect(notification).not.toHaveBeenCalledWith(
+    'Password updated',
+    expect.any(String),
+    'success',
+  );
+  expect(notification).toHaveBeenCalledWith(
+    'Password update failed',
+    'Unable to confirm the password update. Please try again.',
+    'error',
+  );
 });
 test('incorrect current password and server validation render sanitized inline errors', async () => {
   jest.spyOn(changePasswordService, 'update').mockRejectedValue(
     new ApiError('private server text', 'validation', 422, {
-      currentPassword: ['private-value'],
-      newPassword: ['weak'],
+      current_password: ['The current password is incorrect.'],
+      password: ['weak'],
     }),
   );
   await fill();
   await press('Change Password');
-  expect(present('The current password could not be verified.')).toBe(true);
-  expect(present('The new password does not meet the required policy.')).toBe(
-    true,
-  );
+  expect(present('The current password is incorrect.')).toBe(true);
+  expect(present('Check this password field.')).toBe(true);
   expect(present('private-value')).toBe(false);
 });
 test.each([
   ['network', 'Unable to connect or request timed out. Please try again.'],
   ['rate-limit', 'Too many attempts. Please wait before trying again.'],
 ] as const)('%s failure never reports success', async (kind, message) => {
-  const alert = jest.spyOn(Alert, 'alert');
+  const notification = jest.spyOn(toast, 'showToast');
   jest
     .spyOn(changePasswordService, 'update')
     .mockRejectedValue(new ApiError('failed', kind));
   await fill();
   await press('Change Password');
-  expect(present(message)).toBe(true);
-  expect(alert).not.toHaveBeenCalled();
+  expect(notification).toHaveBeenCalledWith(
+    'Password update failed',
+    message,
+    'error',
+  );
+  expect(notification).not.toHaveBeenCalledWith(
+    'Password updated',
+    expect.any(String),
+    'success',
+  );
 });
-test('revoked session clears passwords and invokes central secure logout', async () => {
+test('revoked session clears passwords without a second Logout request', async () => {
   jest
     .spyOn(changePasswordService, 'update')
     .mockResolvedValue({ updated: true, session: 'revoked' });
@@ -175,29 +188,25 @@ test('revoked session clears passwords and invokes central secure logout', async
     .mockResolvedValue({ cacheCleared: true });
   await fill();
   await press('Change Password');
-  expect(logout).toHaveBeenCalledWith(client);
-  expect(tree.root.findAllByType(TextInput)).toHaveLength(0);
+  expect(logout).not.toHaveBeenCalled();
+  expect(input('Current Password').props.value).toBe('');
 });
-test('expired session retries secure cleanup without allowing another password update', async () => {
+test('expired session reports Toast without calling Logout endpoint', async () => {
+  const notification = jest.spyOn(toast, 'showToast');
   jest
     .spyOn(changePasswordService, 'update')
     .mockRejectedValue(new ApiError('expired', 'unauthorized', 401));
-  const logout = jest
-    .spyOn(sessions, 'logoutSession')
-    .mockRejectedValueOnce(new Error('keychain'))
-    .mockResolvedValueOnce({ cacheCleared: true });
+  const logout = jest.spyOn(sessions, 'logoutSession');
   await fill();
   await press('Change Password');
-  expect(
-    present(
-      'Could not clear the secure session. Retry sign out before continuing.',
-    ),
-  ).toBe(true);
-  expect(tree.root.findAllByType(TextInput)).toHaveLength(0);
-  expect(button('Back to Settings').props.disabled).toBe(true);
-  await press('Retry secure sign out');
-  expect(logout).toHaveBeenCalledTimes(2);
+  expect(logout).not.toHaveBeenCalled();
+  expect(notification).toHaveBeenCalledWith(
+    'Password update failed',
+    expect.stringContaining('sign in'),
+    'error',
+  );
 });
+
 test('pending update disables inputs and guards duplicate keyboard/button sends', async () => {
   let reject!: (error: Error) => void;
   const update = jest.spyOn(changePasswordService, 'update').mockImplementation(

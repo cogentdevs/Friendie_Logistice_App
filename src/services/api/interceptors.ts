@@ -13,8 +13,11 @@ export function installInterceptors(client: AxiosInstance) {
         'Configure API_BASE_URL before connecting.',
         'unknown',
       );
-    const token = await secureStorage.getToken();
-    if (token) config.headers.Authorization = 'Bearer ' + token;
+    // Public requests may explicitly opt out; existing authenticated requests are unchanged.
+    if (config.headers.Authorization == null) {
+      const token = await secureStorage.getToken();
+      if (token) config.headers.Authorization = 'Bearer ' + token;
+    }
     owners.set(config, useAuthStore.getState().user);
     return config;
   });

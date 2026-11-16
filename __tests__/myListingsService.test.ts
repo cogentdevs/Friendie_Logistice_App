@@ -1,122 +1,298 @@
-import { appConfig } from '../src/constants/appConfig';
+import axios from 'axios';
 import { apiClient } from '../src/services/api/apiClient';
+import { appConfig } from '../src/constants/appConfig';
 import { useAuthStore } from '../src/store/authStore';
 import { useDevelopmentStore } from '../src/store/developmentStore';
+import { secureStorage } from '../src/services/storage/secureStorage';
 import {
   getMyListings,
-  MyListing,
+  UnsupportedMyListingStatusError,
+  myListingsErrorMessage,
 } from '../src/features/listings/services/myListingsService';
-import { getListingDetails } from '../src/features/listings/services/listingDetailsService';
-const item: MyListing = {
-  id: 1,
-  ownerId: 8,
-  status: 'active',
-  type: 'carry',
-  title: 'Trip',
-  origin: 'Karachi',
-  destination: 'Dubai',
-  departureDate: '2000-01-01',
-  category: 'Documents',
-  price: 120,
-  currency: 'USD',
-  capacityKg: 15,
+import { getOwnListingsPage } from '../src/features/listings/services/myListingsApiService';
+import * as ownApi from '../src/features/listings/services/myListingsApiService';
+import { ownListingFixture as item } from '../test/fixtures/myListings';
+const member = { id: 8, name: 'Member', email: 'member@example.test' };
+const previous = {
+  adapter: apiClient.defaults.adapter,
+  preview: appConfig.uiPreviewEnabled,
 };
-let previous: { url: string; verified: boolean; preview: boolean };
+let body: unknown;
+let token: string | null;
+let calls: number;
+const responseBody = (record: unknown = item, page = 1) => ({
+  success: true,
+  message: 'Your listings retrieved successfully.',
+  data: {
+    items: [record],
+    pagination: { current_page: page, per_page: 20, total: 21, last_page: 2 },
+  },
+});
 beforeEach(() => {
-  previous = {
-    url: appConfig.apiBaseUrl,
-    verified: appConfig.myListingsApiVerified,
-    preview: appConfig.uiPreviewEnabled,
-  };
+  useAuthStore.getState().setUser(member);
   useDevelopmentStore.setState({ previewActive: false });
-  useAuthStore
-    .getState()
-    .setUser({ id: 8, name: 'Member', email: 'm@example.test' });
+  token = 'own-listings-contract-test-token';
+  calls = 0;
+  body = responseBody();
+  jest.spyOn(secureStorage, 'getToken').mockImplementation(async () => token);
+  apiClient.defaults.adapter = async config => {
+    calls++;
+    return { status: 200, statusText: '', config, headers: {}, data: body };
+  };
 });
 afterEach(() => {
-  appConfig.apiBaseUrl = previous.url;
-  appConfig.myListingsApiVerified = previous.verified;
+  apiClient.defaults.adapter = previous.adapter;
   appConfig.uiPreviewEnabled = previous.preview;
-  useDevelopmentStore.setState({ previewActive: false });
   jest.restoreAllMocks();
 });
-test('unverified endpoint and unauthenticated requests transmit nothing', async () => {
-  appConfig.myListingsApiVerified = false;
-  const get = jest.spyOn(apiClient, 'get');
-  await expect(getMyListings('active', 1)).rejects.toThrow('unavailable');
-  useAuthStore.getState().clear();
-  await expect(getMyListings('active', 1)).rejects.toThrow('Sign in');
-  expect(get).not.toHaveBeenCalled();
-});
-test('verified route is authenticated/scoped and owner mismatch is rejected', async () => {
-  appConfig.apiBaseUrl = 'https://example.test/api';
-  appConfig.myListingsApiVerified = true;
-  const get = jest
-    .spyOn(apiClient, 'get')
-    .mockResolvedValueOnce({
-      data: { data: [item], meta: { current_page: 1, last_page: 1, total: 1 } },
-    })
-    .mockResolvedValueOnce({
-      data: {
-        data: [{ ...item, ownerId: 99 }],
-        meta: { current_page: 1, last_page: 1 },
-      },
+test.each([
+  ['active', 1, 'Carring', 'carry'],
+  ['expired', 2, 'Send', 'send'],
+] as const)(
+  '%s sends verified private GET and maps real %s/%s data',
+  async (status, backendStatus, adType, type) => {
+    const raw = { ...item, status: backendStatus, ad_type: adType };
+    body = responseBody(raw);
+    apiClient.defaults.adapter = async config => {
+      calls++;
+      expect(config.method).toBe('get');
+      expect(config.url).toBe('/customer/listings');
+      expect(config.baseURL).toBe(appConfig.apiBaseUrl);
+      expect(config.headers.Authorization).toBe(
+        'Bearer own-listings-contract-test-token',
+      );
+      expect(config.params).toEqual({
+        page: 1,
+        per_page: 20,
+        status: backendStatus,
+      });
+      return { status: 200, statusText: '', config, headers: {}, data: body };
+    };
+    const result = await getMyListings(status, 1);
+    expect(result.data[0]).toMatchObject({
+      id: 501,
+      ownerId: 8,
+      status,
+      type,
+      origin: 'Clifton',
+      destination: 'Marina',
+      price: 20,
+      currency: 'USD',
+      departureDate: item.departure_on,
+      weight: { value: 5, unit: 'kg' },
+      backend: raw,
     });
-  const result = await getMyListings('active', 1);
-  expect(get).toHaveBeenCalledWith('/user/listings', {
-    signal: undefined,
-    params: { status: 'active', page: 1 },
+    expect(result.meta).toEqual({ current_page: 1, last_page: 2, total: 21 });
+    expect(result.meta.counts).toBeUndefined();
+    expect(calls).toBe(1);
+  },
+);
+test('Completed has no backend mapping and never requests or labels Pending as Completed', async () => {
+  await expect(getMyListings('completed', 1)).rejects.toBeInstanceOf(
+    UnsupportedMyListingStatusError,
+  );
+  expect(calls).toBe(0);
+  expect(secureStorage.getToken).not.toHaveBeenCalled();
+  expect(
+    myListingsErrorMessage(new UnsupportedMyListingStatusError()),
+  ).toContain('Pending listings cannot');
+});
+test('verified raw read filters support actual Pending/Send/search/sort without new UI or mutation', async () => {
+  body = responseBody({ ...item, status: 0, ad_type: 'Send' });
+  apiClient.defaults.adapter = async config => {
+    expect(config.params).toEqual({
+      page: 1,
+      per_page: 20,
+      status: 0,
+      ad_type: 'Send',
+      search: 'parcel',
+      sort: 'oldest',
+    });
+    return { status: 200, statusText: '', config, headers: {}, data: body };
+  };
+  expect(
+    (
+      await getOwnListingsPage(1, {
+        status: 0,
+        ad_type: 'Send',
+        search: 'parcel',
+        sort: 'oldest',
+      })
+    ).items[0].status,
+  ).toBe(0);
+});
+test('missing values remain null in the record, with honest location/date UI fallbacks', async () => {
+  body = responseBody({
+    ...item,
+    title: null,
+    category_id: null,
+    from_area: null,
+    to_area: null,
+    weight: null,
+    weight_price: null,
+    currency: null,
+    departure_on: null,
+    image_url: null,
   });
-  expect(result.data[0].status).toBe('active');
+  const row = (await getMyListings('active', 1)).data[0];
+  expect(row).toMatchObject({
+    title: null,
+    category: null,
+    price: null,
+    currency: null,
+    origin: 'Location unavailable',
+    departureDate: '',
+    coverImageUrl: null,
+  });
+  expect(row.weight).toBeUndefined();
+  expect(row.capacityKg).toBeUndefined();
+  expect(row.backend?.from_country_id).toBe(179);
+});
+test('empty and last pages use authoritative pagination without synthetic records/counts', async () => {
+  body = {
+    success: true,
+    message: 'OK',
+    data: {
+      items: [],
+      pagination: { current_page: 1, per_page: 20, total: 0, last_page: 1 },
+    },
+  };
+  expect(await getMyListings('active', 1)).toMatchObject({
+    data: [],
+    meta: { total: 0, last_page: 1 },
+  });
+  body = responseBody(item, 2);
+  expect((await getMyListings('active', 2)).meta.current_page).toBe(2);
+});
+test.each([
+  { ...item, ad_type: 'Carry' },
+  { ...item, status: 3 },
+  { ...item, status: 0 },
+  { ...item, image_url: 'file:///private' },
+])(
+  'invalid/unknown type/status or mismatched filter fails safely %j',
+  async raw => {
+    body = responseBody(raw);
+    await expect(getMyListings('active', 1)).rejects.toMatchObject({
+      kind: 'unknown',
+    });
+  },
+);
+test('invalid envelope and mismatched response pagination are rejected', async () => {
+  body = {};
   await expect(getMyListings('active', 1)).rejects.toMatchObject({
-    kind: 'forbidden',
+    kind: 'unknown',
+  });
+  body = responseBody(item, 2);
+  await expect(getMyListings('active', 1)).rejects.toMatchObject({
+    kind: 'unknown',
   });
 });
-test('wrong status is rejected rather than inferring expiration from dates', async () => {
-  appConfig.apiBaseUrl = 'https://example.test/api';
-  appConfig.myListingsApiVerified = true;
-  jest
-    .spyOn(apiClient, 'get')
-    .mockResolvedValue({
-      data: {
-        data: [{ ...item, status: 'completed' }],
-        meta: { current_page: 1, last_page: 1 },
-      },
+test.each([0, 1.5, 100001])('invalid page %s sends no HTTP', async page => {
+  await expect(getOwnListingsPage(page)).rejects.toMatchObject({
+    kind: 'validation',
+  });
+  expect(calls).toBe(0);
+});
+test.each(['guest', 'demo'])(
+  '%s cannot call the real endpoint; existing demo Completed fixture remains isolated',
+  async mode => {
+    useAuthStore.getState().clear();
+    appConfig.uiPreviewEnabled = true;
+    useDevelopmentStore.setState({ previewActive: mode === 'demo' });
+    await expect(getOwnListingsPage()).rejects.toMatchObject({
+      kind: 'unauthorized',
     });
-  await expect(getMyListings('active', 1)).rejects.toThrow(
-    'selected listing status',
-  );
+    if (mode === 'demo')
+      expect((await getMyListings('completed', 1)).data[0].status).toBe(
+        'completed',
+      );
+    else
+      await expect(getMyListings('active', 1)).rejects.toMatchObject({
+        kind: 'unauthorized',
+      });
+    expect(calls).toBe(0);
+  },
+);
+test('missing token uses conditional existing session cleanup', async () => {
+  token = null;
+  jest.spyOn(secureStorage, 'removeTokenIfCurrent').mockResolvedValue(true);
+  await expect(getMyListings('active', 1)).rejects.toMatchObject({
+    kind: 'unauthorized',
+  });
+  expect(useAuthStore.getState().status).toBe('guest');
+  expect(calls).toBe(0);
 });
-test('preview status fixtures and matching details are available without authentication', async () => {
-  appConfig.uiPreviewEnabled = true;
-  useAuthStore.getState().clear();
-  useDevelopmentStore.setState({ previewActive: true });
-  const get = jest.spyOn(apiClient, 'get');
-  const active = await getMyListings('active', 1),
-    completed = await getMyListings('completed', 1),
-    expired = await getMyListings('expired', 1);
-  expect(active.meta.counts).toEqual({ active: 3, completed: 1, expired: 1 });
-  expect(completed.data[0].status).toBe('completed');
-  expect(expired.data[0].status).toBe('expired');
-  await expect(
-    getListingDetails(String(completed.data[0].id)),
-  ).resolves.toMatchObject({ status: 'completed' });
-  expect(get).not.toHaveBeenCalled();
+test.each(['logout', 'switch', 'relogin', 'token-change', 'abort'])(
+  'late %s responses cannot enter a new account cache',
+  async action => {
+    const controller = new AbortController();
+    apiClient.defaults.adapter = async config => {
+      if (action === 'logout') useAuthStore.getState().clear();
+      if (action === 'switch')
+        useAuthStore.getState().setUser({ ...member, id: 9 });
+      if (action === 'relogin') useAuthStore.getState().setUser({ ...member });
+      if (action === 'token-change') token = 'changed-test-token';
+      if (action === 'abort') controller.abort();
+      return { status: 200, statusText: '', config, headers: {}, data: body };
+    };
+    await expect(
+      getMyListings('active', 1, controller.signal),
+    ).rejects.toMatchObject({ kind: 'cancelled' });
+  },
+);
+test.each([403, 404, 429, 500, undefined])(
+  'error %s remains safe and does not destroy a valid session',
+  async status => {
+    apiClient.defaults.adapter = async config => {
+      throw new axios.AxiosError(
+        'internal',
+        'ERR_NETWORK',
+        config,
+        undefined,
+        status
+          ? {
+              status,
+              statusText: '',
+              config,
+              headers: {},
+              data: { message: 'internal exception' },
+            }
+          : undefined,
+      );
+    };
+    const error = await getMyListings('active', 1).catch(value => value);
+    expect(myListingsErrorMessage(error)).not.toContain('internal');
+    expect(useAuthStore.getState().user).toBe(member);
+  },
+);
+test('401 clears only the matching current credentials through the existing interceptor', async () => {
+  jest.spyOn(secureStorage, 'removeTokenIfCurrent').mockResolvedValue(true);
+  apiClient.defaults.adapter = async config => {
+    throw new axios.AxiosError(
+      'expired',
+      'ERR_BAD_RESPONSE',
+      config,
+      undefined,
+      { status: 401, statusText: '', config, headers: {}, data: {} },
+    );
+  };
+  await expect(getMyListings('active', 1)).rejects.toMatchObject({
+    kind: 'unauthorized',
+  });
+  expect(useAuthStore.getState().status).toBe('guest');
 });
-test('an account change during a read prevents returning old account data', async () => {
-  appConfig.apiBaseUrl = 'https://example.test/api';
-  appConfig.myListingsApiVerified = true;
-  let finish!: (value: unknown) => void;
-  jest.spyOn(apiClient, 'get').mockImplementation(
-    () =>
-      new Promise(resolve => {
-        finish = resolve;
-      }),
-  );
-  const result = getMyListings('active', 1);
-  useAuthStore
-    .getState()
-    .setUser({ id: 9, name: 'Other', email: 'other@example.test' });
-  finish({ data: { data: [item], meta: { current_page: 1, last_page: 1 } } });
-  await expect(result).rejects.toMatchObject({ kind: 'unauthorized' });
+
+test('UI adapter rejects a session change in the await gap after the verified raw read', async () => {
+  jest.spyOn(ownApi, 'getOwnListingsPage').mockImplementation(async () => {
+    useAuthStore.getState().setUser({ ...member, id: 9 });
+    return {
+      items: [item],
+      pagination: { current_page: 1, per_page: 20, total: 1, last_page: 1 },
+      ownerId: 8,
+    };
+  });
+  await expect(getMyListings('active', 1)).rejects.toMatchObject({
+    kind: 'cancelled',
+  });
 });

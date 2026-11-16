@@ -28,18 +28,37 @@ export function internationalPhone(value: string, countryId: PhoneCountry) {
   }
   return country.pattern.test(digits) ? '+' + country.dial + digits : undefined;
 }
-// Local baseline only. Confirm the full password policy with the registration API.
+function passwordBytes(value: string) {
+  return Array.from(value).reduce((length, character) => {
+    const point = character.codePointAt(0)!;
+    return (
+      length + (point < 0x80 ? 1 : point < 0x800 ? 2 : point < 0x10000 ? 3 : 4)
+    );
+  }, 0);
+}
+// Verified AuthController::register: Password::defaults() (8 chars), bcrypt 72-byte cap.
 export const registerSchema = z
   .object({
-    fullName: z.string().trim().min(1, 'Enter your full name'),
+    fullName: z
+      .string()
+      .trim()
+      .min(1, 'Enter your full name')
+      .max(255, 'Use no more than 255 characters'),
     email: z
       .string()
       .trim()
       .toLowerCase()
+      .max(255, 'Use no more than 255 characters')
       .pipe(z.email('Enter a valid email address')),
     country: z.enum(['PK', 'AE', 'SA', 'GB', 'US']),
     phone: z.string().trim().min(1, 'Enter your phone number'),
-    password: z.string().min(8, 'Use at least 8 characters'),
+    password: z
+      .string()
+      .min(8, 'Use at least 8 characters')
+      .refine(
+        value => passwordBytes(value) <= 72,
+        'Use a password no longer than 72 UTF-8 bytes',
+      ),
     confirmPassword: z.string().min(1, 'Confirm your password'),
     acceptedTerms: z
       .boolean()

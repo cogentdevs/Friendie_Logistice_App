@@ -1,8 +1,17 @@
 // Proposed contract: confirm these paths and response shapes with the Laravel team.
 export const endpoints = {
+  receivedReviews: '/customer/reviews/received',
+  givenReviews: '/customer/reviews/given',
+  dashboard: '/customer/dashboard',
+  categories: '/categories',
+  register: '/auth/register',
   login: '/auth/login',
   logout: '/auth/logout',
+  forgotPassword: '/auth/forgot-password',
+  profile: '/customer/profile',
+  profileAvatar: '/customer/profile/avatar',
+  changePassword: '/customer/change-password',
   me: '/user',
   listings: '/listings',
-  myListings: '/user/listings',
+  myListings: '/customer/listings',
 } as const;

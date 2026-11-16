@@ -41,6 +41,7 @@ import {
 import { useLocationStore } from '../../location/store/locationStore';
 import { getNativeAppVersion } from '../../about/services/appMetadata';
 import { logoutSession } from '../../auth/services/sessionLogout';
+import { logoutErrorMessage } from '../../auth/services/logoutApiService';
 import { LogoutConfirmationModal } from '../../auth/components/LogoutConfirmationModal';
 type Props = CompositeScreenProps<
   DrawerScreenProps<DrawerParamList, 'Settings'>,
@@ -84,8 +85,8 @@ export function SettingsScreen({ navigation }: Props) {
       setConfirm(false);
       if (!result.cacheCleared)
         Alert.alert('Signed out', 'Some local app data could not be removed.');
-    } catch {
-      setError('Could not clear your secure session. Please try Logout again.');
+    } catch (failure) {
+      setError(logoutErrorMessage(failure));
       setConfirm(false);
     } finally {
       flight.current = false;

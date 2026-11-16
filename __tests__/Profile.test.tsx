@@ -191,3 +191,21 @@ test('UI preview keeps Edit Profile accessible', async () => {
     appConfig.uiPreviewEnabled = previous;
   }
 });
+
+test('server logout failure shows actionable error while preserving authenticated Profile', async () => {
+  const { ApiError } = require('../src/types/api');
+  const message =
+    'Unable to reach the server. You are still signed in. Check your connection and try Logout again.';
+  jest.spyOn(profileService, 'getProfile').mockResolvedValue(person);
+  jest
+    .spyOn(logoutService, 'logoutSession')
+    .mockRejectedValue(new ApiError(message, 'network'));
+  await mount();
+  await press('Logout');
+  await press('Confirm logout');
+  await settle();
+  expect(
+    tree.root.findAll(node => node.props.children === message).length,
+  ).toBeGreaterThan(0);
+  expect(useAuthStore.getState().status).toBe('authenticated');
+});

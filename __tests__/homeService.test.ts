@@ -8,13 +8,16 @@ import { getListings } from '../src/features/listings/services/listingsService';
 import { routeFixture } from '../test/fixtures/search';
 const original = appConfig.uiPreviewEnabled;
 const originalStatic = appConfig.staticMarketplaceEnabled;
+const originalTesting = appConfig.staticTestingBuild;
 beforeEach(() => {
+  appConfig.staticTestingBuild = true;
   appConfig.uiPreviewEnabled = true;
   appConfig.staticMarketplaceEnabled = true;
   useDevelopmentStore.setState({ previewActive: false });
   useAuthStore.getState().clear();
 });
 afterEach(() => {
+  appConfig.staticTestingBuild = originalTesting;
   appConfig.uiPreviewEnabled = original;
   appConfig.staticMarketplaceEnabled = originalStatic;
   jest.restoreAllMocks();
@@ -22,7 +25,6 @@ afterEach(() => {
 test('disabled static feeds never guess production endpoints', async () => {
   appConfig.staticMarketplaceEnabled = false;
   const get = jest.spyOn(apiClient, 'get');
-  await expect(homeService.categories()).rejects.toThrow('disabled');
   await expect(homeService.destinations()).rejects.toThrow('disabled');
   await expect(homeService.latest()).rejects.toThrow('disabled');
   await expect(homeService.unread()).rejects.toThrow('unavailable');

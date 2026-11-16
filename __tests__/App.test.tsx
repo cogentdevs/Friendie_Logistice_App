@@ -34,6 +34,7 @@ import { useLocationStore } from '../src/features/location/store/locationStore';
 import { useFilterDraftStore } from '../src/features/search/store/filterDraftStore';
 import React from 'react';
 import { appConfig } from '../src/constants/appConfig';
+const profileApiForNavigationTests = appConfig.profileApiVerified;
 import { useDevelopmentStore } from '../src/store/developmentStore';
 import { authService } from '../src/features/auth/services/authService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -147,6 +148,9 @@ async function back() {
   await settle();
 }
 beforeEach(async () => {
+  // Navigation fixtures establish synthetic membership without a backend token.
+  // Real Profile transport is covered separately by profileApi/ProfileApiScreen.
+  appConfig.profileApiVerified = false;
   useBrowseFiltersStore.getState().reset();
   cancelAuthentication();
   Object.defineProperty(AppState, 'currentState', {
@@ -164,6 +168,7 @@ beforeEach(async () => {
   await AsyncStorage.removeItem('friendie.preferences');
 });
 afterEach(async () => {
+  appConfig.profileApiVerified = profileApiForNavigationTests;
   await Renderer.act(async () => {
     tree?.unmount();
   });
@@ -1721,3 +1726,45 @@ test('every cold launch shows Splash before returning guest Home without repeati
     await Renderer.act(async () => { tree!.unmount(); tree = undefined; });
   }
 }, 30000);
+
+test('real Logout API confirmation returns Guest Home and protects Post again', async () => {
+  const { apiClient } = require('../src/services/api/apiClient');
+  const { secureStorage } = require('../src/services/storage/secureStorage');
+  await openPhase2GuestHome();
+  await authenticatePhase3();
+  const token = jest.spyOn(secureStorage, 'getToken').mockResolvedValue('navigation-contract-token');
+  const remove = jest.spyOn(secureStorage, 'removeTokenIfCurrent').mockResolvedValue(true);
+  const post = jest.spyOn(apiClient, 'post').mockResolvedValue({status:200,data:{success:true,message:'Logout successful.',data:{}}});
+  try {
+    await press('Profile');
+    await press('Logout');
+    expect(post).not.toHaveBeenCalled();
+    await press('Confirm logout');
+    await settle();
+    expect(post).toHaveBeenCalledWith('/auth/logout',undefined,expect.objectContaining({headers:{Authorization:'Bearer navigation-contract-token'}}));
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(navigationRef.getCurrentRoute()?.name).toBe('Home');
+    expect(navigationRef.canGoBack()).toBe(false);
+    expect(useAuthStore.getState().status).toBe('guest');
+    await press('Post');
+    expect(navigationRef.getCurrentRoute()?.name).toBe('Login');
+  } finally {
+    token.mockRestore();remove.mockRestore();post.mockRestore();
+  }
+});
+
+test('guest Profile never requests private backend data even when real Profile API is enabled', async () => {
+  const { apiClient } = require('../src/services/api/apiClient');
+  appConfig.profileApiVerified = true;
+  const get = jest.spyOn(apiClient, 'get');
+  try {
+    await openPhase2GuestHome();
+    await press('Profile');
+    expect(tree!.root.findAllByType(GuestProfileScreen)).toHaveLength(1);
+    expect(get).not.toHaveBeenCalled();
+    await press('Sign In');
+    expect(navigationRef.getCurrentRoute()?.name).toBe('Login');
+  } finally {
+    get.mockRestore();
+  }
+});

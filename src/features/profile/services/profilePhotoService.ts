@@ -5,29 +5,44 @@ import {
 } from 'react-native-image-picker';
 export type AvatarDraft = {
   uri: string;
-  type: 'image/jpeg' | 'image/png';
-  fileSize: number;
+  type: 'image/jpeg' | 'image/png' | 'image/webp';
+  fileSize?: number;
+  fileName?: string;
+  width?: number;
+  height?: number;
 };
-// Website maximum enforced locally; server limits and accepted formats still need verification.
-export const previewAvatarMaxBytes = 10 * 1024 * 1024;
+// Verified CustomerController::uploadAvatar; unknown provider sizes are validated by Laravel.
+export const previewAvatarMaxBytes = 2 * 1024 * 1024;
 export function validateAvatar(asset: Asset): AvatarDraft {
   if (
     !asset.uri ||
-    !/^(file|content):\/\//.test(asset.uri) ||
-    !['image/jpeg', 'image/png'].includes(asset.type ?? '')
+    !/^(file|content):\/\/.+/.test(asset.uri) ||
+    /[\r\n\0]/.test(asset.uri) ||
+    !['image/jpeg', 'image/png', 'image/webp'].includes(asset.type ?? '')
   )
-    throw new Error('Choose a local JPEG or PNG image.');
+    throw new Error('Choose a local JPEG, PNG or WebP image.');
   if (
-    !Number.isFinite(asset.fileSize) ||
-    !asset.fileSize ||
-    asset.fileSize <= 0 ||
-    asset.fileSize > previewAvatarMaxBytes
+    Number.isFinite(asset.fileSize) &&
+    asset.fileSize! > previewAvatarMaxBytes
   )
-    throw new Error('Choose a JPEG or PNG up to 10 MB with a known file size.');
+    throw new Error('Choose a JPEG, PNG or WebP image up to 2 MB.');
+  for (const dimension of [asset.width, asset.height]) {
+    if (
+      dimension != null &&
+      (!Number.isFinite(dimension) || dimension < 1 || dimension > 2048)
+    )
+      throw new Error('Choose an image no larger than 2048 by 2048 pixels.');
+  }
   return {
     uri: asset.uri,
     type: asset.type as AvatarDraft['type'],
-    fileSize: asset.fileSize,
+    fileSize:
+      Number.isFinite(asset.fileSize) && asset.fileSize! > 0
+        ? asset.fileSize
+        : undefined,
+    fileName: asset.fileName,
+    width: asset.width,
+    height: asset.height,
   };
 }
 export class PhotoPermissionError extends Error {}
@@ -39,6 +54,8 @@ export async function chooseProfilePhoto(
     includeBase64: false,
     includeExtra: false,
     saveToPhotos: false,
+    maxWidth: 2048,
+    maxHeight: 2048,
   };
   const response = await (source === 'camera'
     ? launchCamera(options)

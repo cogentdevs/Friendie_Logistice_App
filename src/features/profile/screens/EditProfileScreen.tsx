@@ -42,10 +42,17 @@ import { isUiPreviewActive } from '../../../store/developmentStore';
 import { useProfile } from '../hooks/useProfile';
 import { Profile, profileSchema } from '../services/profileService';
 import {
-  editProfileSchema,
+  createEditProfileSchema,
   EditProfileValues,
 } from '../schemas/editProfileSchema';
-import { profileEditService } from '../services/profileEditService';
+import {
+  profileEditService,
+  profileCallingCountry,
+  profileUpdateErrorMessage,
+  AvatarPartialSaveError,
+} from '../services/profileEditService';
+import Toast from 'react-native-toast-message';
+import { clearPrivateAccountMemory } from '../../auth/services/sessionLogout';
 import {
   AvatarDraft,
   chooseProfilePhoto,
@@ -152,21 +159,13 @@ function ProfileEditor({
     >
   >({});
   const form = useForm<EditProfileValues>({
-    resolver: zodResolver(editProfileSchema),
+    resolver: zodResolver(createEditProfileSchema(!profile.phone)),
     mode: 'onBlur',
     defaultValues: {
       name: profile.name,
       email: profile.email,
       phone: profile.phone ?? '',
-      callingCountry: profile.location?.country.code
-        ? phoneCountries.find(
-            country => country.id === profile.location?.country.code,
-          )?.id ?? null
-        : phoneCountries.find(
-            country =>
-              country.id !== 'US' &&
-              profile.phone?.startsWith('+' + country.dial),
-          )?.id ?? null,
+      callingCountry: profileCallingCountry(profile),
     },
   });
   const [name, email, phone, callingCountry] = form.watch([
@@ -175,9 +174,20 @@ function ProfileEditor({
     'phone',
     'callingCountry',
   ]);
+  const request = useRef<AbortController | null>(null);
+  React.useEffect(() => () => request.current?.abort(), []);
+  React.useEffect(() => {
+    if (!focused) request.current?.abort();
+  }, [focused]);
   const mutation = useMutation({
     mutationFn: (values: EditProfileValues) =>
-      profileEditService.save(values, photo, removePhoto),
+      profileEditService.save(
+        values,
+        photo,
+        removePhoto,
+        profile,
+        request.current?.signal,
+      ),
     retry: false,
     gcTime: 0,
   });
@@ -188,7 +198,11 @@ function ProfileEditor({
   usePreventRemove(focused && active && dirty && !saved, ({ data }) => {
     if (confirming.current) return;
     if (submission.current || choosing.current) {
-      Alert.alert('Please wait', 'Wait for the current operation to finish.');
+      Toast.show({
+        type: 'info',
+        text1: 'Please wait',
+        text2: 'Wait for the current operation to finish.',
+      });
       return;
     }
     confirming.current = true;
@@ -235,14 +249,16 @@ function ProfileEditor({
       if (result) {
         setPhoto(result);
         setRemovePhoto(false);
+        setFailedUri(undefined);
       }
     } catch (error) {
       setPermissionDenied(error instanceof PhotoPermissionError);
-      setPhotoError(
+      const message =
         error instanceof Error
           ? error.message
-          : 'Could not select a photo. Please try again.',
-      );
+          : 'Could not select a photo. Please try again.';
+      setPhotoError(message);
+      Toast.show({ type: 'error', text1: 'Photo unavailable', text2: message });
     } finally {
       choosing.current = false;
       setPicking(false);
@@ -252,7 +268,7 @@ function ProfileEditor({
     Keyboard.dismiss();
     Alert.alert(
       'Upload New Photo',
-      'Choose JPEG or PNG up to 10 MB. This is an unsaved preview; upload is not connected.',
+      'Choose JPEG, PNG or WebP up to 2 MB. The selected photo is uploaded when you save.',
       [
         {
           text: 'Camera',
@@ -270,61 +286,116 @@ function ProfileEditor({
       ],
     );
   };
-  const save = form.handleSubmit(async values => {
-    if (submission.current || choosing.current) return;
-    submission.current = true;
-    Keyboard.dismiss();
-    form.clearErrors('root');
-    try {
-      const result = profileSchema.parse(await mutation.mutateAsync(values));
-      if (
-        demo ||
-        result.id !== profile.id ||
-        useAuthStore.getState().status !== 'authenticated' ||
-        useAuthStore.getState().user?.id !== profile.id
-      )
-        throw new Error('Profile session changed');
-      // A future verified adapter must supply the authoritative status after any re-verification.
-      client.setQueryData(['profile', profile.id], result);
-      useAuthStore.getState().setUser({
-        ...result,
-        avatarUrl: result.avatarUrl ?? undefined,
-        verified: result.verified ?? undefined,
-      });
-      form.reset(values);
-      setPhoto(undefined);
-      setRemovePhoto(false);
-      setSaved(true);
-    } catch (error) {
-      form.setError('root.server', {
-        message:
-          error instanceof ApiError
-            ? error.kind === 'network'
-              ? 'Unable to connect. Your changes are unsaved. Please try again.'
-              : error.kind === 'rate-limit'
-              ? 'Too many attempts. Please wait before trying again.'
-              : error.kind === 'server'
-              ? 'Profile updates are temporarily unavailable. Please try again.'
-              : error.message
-            : 'Unable to confirm the profile update. Your changes are unsaved.',
-      });
-      if (error instanceof ApiError)
-        for (const field of ['name', 'email', 'phone'] as const) {
-          const message = error.fields?.[field]?.[0];
-          if (typeof message === 'string')
-            form.setError(field, { type: 'server', message });
+  const save = form.handleSubmit(
+    async values => {
+      if (submission.current || choosing.current) return;
+      submission.current = true;
+      request.current = new AbortController();
+      Keyboard.dismiss();
+      form.clearErrors('root');
+      const session = useAuthStore.getState().user;
+      try {
+        const result = await mutation.mutateAsync(values);
+        const updated = profileSchema.parse(result.profile);
+        if (result.reauthenticationRequired) {
+          if (useAuthStore.getState().status === 'authenticated')
+            throw new ApiError('Session changed.', 'cancelled');
+          form.reset(values);
+          clearPrivateAccountMemory(client);
+          Toast.show({
+            type: 'success',
+            text1: 'Profile updated',
+            text2: 'Verify your new email and sign in again.',
+          });
+          return;
         }
-    } finally {
-      submission.current = false;
-      mutation.reset();
-    }
-  });
+        if (
+          demo ||
+          updated.id !== profile.id ||
+          useAuthStore.getState().status !== 'authenticated' ||
+          useAuthStore.getState().user !== session
+        )
+          throw new ApiError('Profile session changed.', 'cancelled');
+        await client.cancelQueries({
+          queryKey: ['profile', profile.id],
+          exact: true,
+        });
+        if (useAuthStore.getState().user !== session) return;
+        client.setQueryData(['profile', profile.id], updated);
+        form.reset(values);
+        setPhoto(undefined);
+        setRemovePhoto(false);
+        setSaved(true);
+        Toast.show({
+          type: 'success',
+          text1: 'Profile updated',
+          text2: 'Your profile was updated successfully.',
+        });
+      } catch (error) {
+        if (error instanceof ApiError && error.kind === 'cancelled') return;
+        if (
+          useAuthStore.getState().user !== session &&
+          !(error instanceof ApiError && error.kind === 'unauthorized')
+        )
+          return;
+        if (
+          error instanceof AvatarPartialSaveError &&
+          useAuthStore.getState().user === session
+        ) {
+          await client.cancelQueries({
+            queryKey: ['profile', profile.id],
+            exact: true,
+          });
+          if (useAuthStore.getState().user === session)
+            client.setQueryData<Profile>(['profile', profile.id], cached => ({
+              ...(cached ?? profile),
+              avatarUrl: error.avatarUrl,
+            }));
+        }
+        if (error instanceof ApiError && error.kind === 'validation') {
+          const mapping = {
+            name: 'name',
+            email: 'email',
+            phone: 'phone',
+            country_id: 'callingCountry',
+          } as const;
+          for (const [key, field] of Object.entries(mapping)) {
+            const errors = error.fields?.[key];
+            if (Array.isArray(errors) && typeof errors[0] === 'string') {
+              const message =
+                /^(The (?:name|email|phone|country id|country) (?:field is required\.|has already been taken\.|must be a valid email address\.|field must be a valid email address\.|may not be greater than 255 characters\.|field must not be greater than 255 characters\.)|The selected country id is invalid\.)$/.test(
+                  errors[0],
+                )
+                  ? errors[0]
+                  : 'Check this profile field.';
+              form.setError(field, { type: 'server', message });
+            }
+          }
+        }
+        Toast.show({
+          type: 'error',
+          text1: 'Profile update failed',
+          text2: profileUpdateErrorMessage(error),
+        });
+      } finally {
+        submission.current = false;
+        request.current = null;
+        mutation.reset();
+      }
+    },
+    () =>
+      Toast.show({
+        type: 'warning',
+        text1: 'Check profile fields',
+        text2:
+          'Complete the required fields and correct the highlighted values.',
+      }),
+  );
   React.useEffect(() => {
     if (saved) navigation.popTo('Profile');
   }, [saved, navigation]);
-  const uri = removePhoto
-    ? undefined
-    : photo?.uri ?? profile.avatarUrl ?? undefined;
+  const uri =
+    photo?.uri ?? (removePhoto ? undefined : profile.avatarUrl ?? undefined);
   const fields = [
     { key: 'name', label: 'Full Name', icon: UserRound },
     { key: 'email', label: 'Email Address', icon: Mail },
@@ -348,7 +419,19 @@ function ProfileEditor({
                 accessibilityLabel="Profile photo preview"
                 source={{ uri }}
                 style={styles.avatar}
-                onError={() => setFailedUri(uri)}
+                onError={() => {
+                  setFailedUri(uri);
+                  if (photo?.uri === uri) {
+                    const message =
+                      'The selected image could not be opened. Please choose another photo.';
+                    setPhotoError(message);
+                    Toast.show({
+                      type: 'error',
+                      text1: 'Photo unavailable',
+                      text2: message,
+                    });
+                  }
+                }}
               />
             ) : (
               <AppAvatar name={name || profile.name} size={100} />
@@ -387,7 +470,7 @@ function ProfileEditor({
             <AppText color={colors.primary}>Remove Photo</AppText>
           </Pressable>
           <AppText variant="caption">
-            JPEG or PNG, maximum 10 MB. Upload is not connected.
+            JPEG, PNG or WebP, maximum 2 MB and 2048×2048 pixels.
           </AppText>
           {(photo || removePhoto) && (
             <>

@@ -1,4 +1,7 @@
 import { useIsFocused } from '@react-navigation/native';
+import { useEffect, useRef } from 'react';
+import Toast from 'react-native-toast-message';
+import { ApiError } from '../../../types/api';
 import { QueryClient, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../../../store/authStore';
 import { useDevelopmentStore } from '../../../store/developmentStore';
@@ -8,6 +11,7 @@ import {
   reviewScope,
   reviewsService,
   validateReviewPage,
+  reviewErrorMessage,
 } from '../services/reviewsService';
 import { ReviewsTab, reviewsSummarySchema } from '../types/reviews.types';
 export function useReviewScope() {
@@ -25,12 +29,13 @@ export const reviewKeys = {
 function useReviewFeed(tab: ReviewsTab, active: boolean) {
   const focused = useIsFocused(),
     { owner, scope } = useReviewScope();
-  return useInfiniteQuery({
+  const user = useAuthStore(s => s.user);
+  const query = useInfiniteQuery({
     queryKey:
       tab === 'visitors'
         ? reviewKeys.received(scope)
         : reviewKeys.authored(scope),
-    enabled: focused && active,
+    enabled: focused && active && owner !== 'guest',
     initialPageParam: 1,
     staleTime: 30000,
     retry: false,
@@ -49,6 +54,49 @@ function useReviewFeed(tab: ReviewsTab, active: boolean) {
         ? last.nextPage
         : undefined,
   });
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const flight = useRef<Promise<unknown> | null>(null);
+  const run = (more: boolean) => {
+    if (flight.current) return flight.current;
+    const request = (
+      more
+        ? query.fetchNextPage({ cancelRefetch: false })
+        : query.refetch({ cancelRefetch: false })
+    )
+      .then(result => {
+        if (
+          mounted.current &&
+          useAuthStore.getState().user === user &&
+          result.isError &&
+          !(
+            result.error instanceof ApiError &&
+            result.error.kind === 'cancelled'
+          )
+        )
+          Toast.show({
+            type: 'error',
+            text1: 'Reviews unavailable',
+            text2: reviewErrorMessage(result.error),
+          });
+        return result;
+      })
+      .finally(() => {
+        flight.current = null;
+      });
+    flight.current = request;
+    return request;
+  };
+  return {
+    ...query,
+    refetch: (_options?: unknown) => run(false),
+    fetchNextPage: (_options?: unknown) => run(true),
+  };
 }
 export function useVisitorReviews(active = true) {
   return useReviewFeed('visitors', active);

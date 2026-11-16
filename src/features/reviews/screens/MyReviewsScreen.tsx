@@ -39,7 +39,14 @@ export function MyReviewsScreen({
     route.params?.initialTab === 'your' ? 'your' : 'visitors';
   const received = useVisitorReviews(tab === 'visitors'),
     authored = useYourReviews(tab === 'your'),
-    summary = useReviewsSummary(tab === 'visitors');
+    demoSummary = useReviewsSummary(demo && tab === 'visitors');
+  const total = received.data?.pages[0]?.total;
+  const summary = demo
+    ? demoSummary
+    : {
+        ...received,
+        data: total == null ? undefined : { total, averageRating: null },
+      };
   const query = tab === 'visitors' ? received : authored;
   const denied =
     query.error instanceof ApiError &&
@@ -90,7 +97,7 @@ export function MyReviewsScreen({
   };
   const refresh = () => {
     query.refetch({ cancelRefetch: false }).catch(() => {});
-    if (tab === 'visitors')
+    if (demo && tab === 'visitors')
       summary.refetch({ cancelRefetch: false }).catch(() => {});
   };
   const openListing = useCallback(

@@ -158,8 +158,8 @@ export function HomeScreen({ navigation }: Props) {
           />
           {data.demo && (
             <AppText variant="caption" color={colors.primary}>
-              UI demo: sample categories, destinations, ads and photos.
-              Availability and publication order are illustrative.
+              UI demo: sample destinations, ads and photos. Availability and
+              publication order are illustrative.
             </AppText>
           )}
           <CategoriesSection

@@ -34,9 +34,9 @@ async function settle() {
     await new Promise<void>(resolve => setTimeout(() => resolve(), 25));
   });
 }
-async function mount() {
+async function mount(gcTime = 0) {
   client = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    defaultOptions: { queries: { retry: false, gcTime } },
   });
   await Renderer.act(async () => {
     tree = Renderer.create(
@@ -77,8 +77,8 @@ beforeEach(() => {
 afterEach(async () => {
   await Renderer.act(async () => {
     tree?.unmount();
-    client?.clear();
   });
+  client?.clear();
   jest.restoreAllMocks();
 });
 test('status tabs filter requests, show real counts and preserve selection on remount', async () => {
@@ -147,4 +147,122 @@ test('pagination deduplicates IDs and pull-to-refresh refreshes server state', a
   expect(get.mock.calls.filter(call => call[1] === 1).length).toBeGreaterThan(
     1,
   );
+});
+
+test('real Completed limitation is shown without inventing Pending mapping or an empty success', async () => {
+  jest.spyOn(service, 'getMyListings').mockImplementation(async status => {
+    if (status === 'completed')
+      throw new service.UnsupportedMyListingStatusError();
+    return { data: [item], meta: { current_page: 1, last_page: 1, total: 1 } };
+  });
+  await mount();
+  await press('Completed listings');
+  expect(tree.root.findByType(FlatList).props.data).toEqual([]);
+  expect(
+    tree.root.findAll(
+      node =>
+        node.props.children ===
+        'Completed listings have no matching backend status. Pending listings cannot be shown as Completed.',
+    ).length,
+  ).toBeGreaterThan(0);
+});
+test('explicit failure retries produce one safe Toast; automatic loading has none', async () => {
+  const Toast = require('react-native-toast-message').default;
+  const toast = jest.spyOn(Toast, 'show');
+  jest.spyOn(service, 'getMyListings').mockRejectedValue(new Error('private'));
+  await mount();
+  expect(toast).not.toHaveBeenCalled();
+  const retry = tree.root.findAll(
+    n => n.props.title === 'Retry my listings' && n.props.onPress,
+  )[0];
+  await Renderer.act(async () => {
+    retry.props.onPress();
+    retry.props.onPress();
+  });
+  await settle();
+  expect(toast).toHaveBeenCalledTimes(1);
+  expect(toast).toHaveBeenCalledWith({
+    type: 'error',
+    text1: 'My Listings unavailable',
+    text2: 'Your listings are temporarily unavailable. Please try again.',
+  });
+});
+test('same-account tab state reuses cached pages and account switching/logout cannot show previous listings', async () => {
+  const get = jest
+    .spyOn(service, 'getMyListings')
+    .mockImplementation(async status => ({
+      data: [{ ...item, status, ownerId: useAuthStore.getState().user!.id }],
+      meta: { current_page: 1, last_page: 1, total: 1 },
+    }));
+  await mount(30000);
+  await press('Expired listings');
+  await press('Active listings');
+  expect(get).toHaveBeenCalledTimes(2);
+  await Renderer.act(async () => {
+    useAuthStore
+      .getState()
+      .setUser({ id: 9, name: 'Other', email: 'other@example.test' });
+  });
+  await settle();
+  expect(tree.root.findByType(FlatList).props.data[0].ownerId).toBe(9);
+  await Renderer.act(async () => {
+    useAuthStore.getState().clear();
+    client.clear();
+  });
+  await settle();
+  expect(tree.root.findByType(FlatList).props.data).toEqual([]);
+});
+
+test('real Axios adapter data renders existing Carry and Send cards without using sample listings', async () => {
+  const { apiClient } = require('../src/services/api/apiClient');
+  const { secureStorage } = require('../src/services/storage/secureStorage');
+  const { ownListingFixture } = require('../test/fixtures/myListings');
+  const original = apiClient.defaults.adapter;
+  const token = jest
+    .spyOn(secureStorage, 'getToken')
+    .mockResolvedValue('ui-listing-contract-test-token');
+  let adType = 'Carring';
+  apiClient.defaults.adapter = async (config: {
+    params: { status: number };
+  }) => ({
+    status: 200,
+    statusText: '',
+    headers: {},
+    config,
+    data: {
+      success: true,
+      message: 'OK',
+      data: {
+        items: [
+          {
+            ...ownListingFixture,
+            ad_type: adType,
+            status: config.params.status,
+          },
+        ],
+        pagination: { current_page: 1, per_page: 20, total: 1, last_page: 1 },
+      },
+    },
+  });
+  try {
+    await mount();
+    expect(tree.root.findByType(FlatList).props.data[0].id).toBe(501);
+    for (const label of ['Clifton', 'Marina', 'Carry Parcel'])
+      expect(
+        tree.root.findAll(n => n.props.children === label).length,
+      ).toBeGreaterThan(0);
+    adType = 'Send';
+    await Renderer.act(async () => {
+      await tree.root.findByType(FlatList).props.onRefresh();
+    });
+    await settle();
+    expect(
+      tree.root.findAll(n => n.props.children === 'Send Parcel').length,
+    ).toBeGreaterThan(0);
+    await press('Expired listings');
+    expect(tree.root.findByType(FlatList).props.data[0].backend.status).toBe(2);
+    expect(token).toHaveBeenCalled();
+  } finally {
+    apiClient.defaults.adapter = original;
+  }
 });

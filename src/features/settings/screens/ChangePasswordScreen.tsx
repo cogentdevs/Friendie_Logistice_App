@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   BackHandler,
   Keyboard,
   Pressable,
@@ -32,7 +31,8 @@ import { colors } from '../../../theme';
 import { ApiError } from '../../../types/api';
 import { useAuthStore } from '../../../store/authStore';
 import { isUiPreviewActive } from '../../../store/developmentStore';
-import { logoutSession } from '../../auth/services/sessionLogout';
+import { clearPrivateAccountMemory } from '../../auth/services/sessionLogout';
+import { showToast } from '../../../components/ui/AppToast';
 import {
   ChangePasswordValues,
   createChangePasswordSchema,
@@ -40,6 +40,9 @@ import {
 } from '../schemas/changePasswordSchema';
 import {
   changePasswordService,
+  changePasswordErrorMessage,
+  finishPasswordSession,
+  PasswordSessionCleanupError,
   passwordChangePolicy,
 } from '../services/changePasswordService';
 const blank = { currentPassword: '', newPassword: '', confirmPassword: '' };
@@ -65,8 +68,7 @@ export function ChangePasswordScreen({ navigation, route }: Props) {
       : navigation.navigate('Settings');
   const focused = useIsFocused(),
     client = useQueryClient();
-  const owner = useAuthStore(state => state.user?.id),
-    status = useAuthStore(state => state.status);
+  const status = useAuthStore(state => state.status);
   const demo = isUiPreviewActive();
   const form = useForm<ChangePasswordValues>({
     resolver: zodResolver(createChangePasswordSchema(passwordChangePolicy)),
@@ -75,7 +77,7 @@ export function ChangePasswordScreen({ navigation, route }: Props) {
   });
   const mutation = useMutation({
     mutationFn: (values: ChangePasswordValues) =>
-      changePasswordService.update(values),
+      changePasswordService.update(values, request.current?.signal),
     retry: false,
     gcTime: 0,
   });
@@ -83,9 +85,12 @@ export function ChangePasswordScreen({ navigation, route }: Props) {
     [focus, setFocus] = useState('');
   const [signOutRequired, setSignOutRequired] = useState(false),
     [signOutBusy, setSignOutBusy] = useState(false),
-    [signOutError, setSignOutError] = useState('');
-  const submitting = useRef(false),
-    cleaning = useRef(false);
+    [signOutError] = useState('');
+  const revokedOwner =
+    useRef<ReturnType<typeof useAuthStore.getState>['user']>(null);
+  const request = useRef<AbortController | null>(null);
+  useEffect(() => () => request.current?.abort(), []);
+  const submitting = useRef(false);
   const refs = useRef<
     Partial<
       Record<
@@ -102,6 +107,7 @@ export function ChangePasswordScreen({ navigation, route }: Props) {
   ]);
   useEffect(() => {
     if (!focused) {
+      request.current?.abort();
       form.reset(blank);
       setVisible(hidden);
     }
@@ -117,106 +123,108 @@ export function ChangePasswordScreen({ navigation, route }: Props) {
     }, [signOutRequired]),
   );
   const secureSignOut = async () => {
-    if (cleaning.current) return;
-    cleaning.current = true;
+    if (submitting.current || !revokedOwner.current) return;
+    submitting.current = true;
     setSignOutBusy(true);
-    setSignOutError('');
     try {
-      const result = await logoutSession(client);
-      if (!result.cacheCleared)
-        Alert.alert(
-          'Signed out',
-          'Some local app data could not be removed. Clear it before sharing this device.',
-        );
-    } catch {
-      setSignOutError(
-        'Could not clear the secure session. Retry sign out before continuing.',
+      await finishPasswordSession(revokedOwner.current);
+      clearPrivateAccountMemory(client);
+      showToast(
+        'Password updated',
+        'Password changed successfully. Sign in again.',
+        'success',
       );
+    } catch (error) {
+      if (!(error instanceof ApiError && error.kind === 'cancelled'))
+        showToast(
+          'Sign out required',
+          'Retry secure sign out before continuing.',
+          'error',
+        );
     } finally {
-      cleaning.current = false;
+      submitting.current = false;
       setSignOutBusy(false);
     }
   };
-  const submit = form.handleSubmit(async values => {
-    if (submitting.current || signOutRequired) return;
-    submitting.current = true;
-    Keyboard.dismiss();
-    form.clearErrors('root');
-    const account = owner;
-    try {
-      const result = passwordChangeResultSchema.parse(
-        await mutation.mutateAsync(values),
-      );
-      if (
-        demo ||
-        !account ||
-        useAuthStore.getState().status !== 'authenticated' ||
-        useAuthStore.getState().user?.id !== account
-      )
-        throw new Error('Session changed');
-      form.reset(blank);
-      setVisible(hidden);
-      if (result.session === 'revoked') {
-        setSignOutRequired(true);
-        await secureSignOut();
-      } else
-        Alert.alert(
-          'Password updated',
-          'Your password was updated successfully.',
-          [
-            {
-              text: returnToProfile ? 'Back to Profile' : 'Back to Settings',
-              onPress: back,
-            },
-          ],
+  const submit = form.handleSubmit(
+    async values => {
+      if (submitting.current || signOutRequired) return;
+      submitting.current = true;
+      request.current = new AbortController();
+      Keyboard.dismiss();
+      form.clearErrors('root');
+      const session = useAuthStore.getState().user;
+      try {
+        const result = passwordChangeResultSchema.parse(
+          await mutation.mutateAsync(values),
         );
-    } catch (error) {
-      if (
-        error instanceof ApiError &&
-        error.kind === 'unauthorized' &&
-        !(
+        if (
           useAuthStore.getState().status === 'authenticated' &&
-          useAuthStore.getState().user?.id !== account
+          useAuthStore.getState().user !== session
         )
-      ) {
+          return;
         form.reset(blank);
         setVisible(hidden);
-        setSignOutRequired(true);
-        await secureSignOut();
-      } else {
-        const message =
-          error instanceof ApiError
-            ? error.kind === 'network'
-              ? 'Unable to connect or request timed out. Please try again.'
-              : error.kind === 'rate-limit'
-              ? 'Too many attempts. Please wait before trying again.'
-              : error.kind === 'server'
-              ? 'Password updates are temporarily unavailable. Please try again later.'
-              : error.kind === 'validation'
-              ? 'Check the password fields and try again.'
-              : 'Password updates are not connected yet. Your password has not been changed.'
-            : 'Unable to confirm the password update. Please try again.';
-        form.setError('root.server', { message });
-        if (error instanceof ApiError && error.kind === 'validation') {
-          // Defensive domain-field mapping only; the actual Laravel DTO still needs verification.
-          for (const field of fields)
-            if (error.fields?.[field.name]?.length)
-              form.setError(field.name, {
-                type: 'server',
-                message:
-                  field.name === 'currentPassword'
-                    ? 'The current password could not be verified.'
-                    : field.name === 'confirmPassword'
-                    ? 'Check that your new passwords match.'
-                    : 'The new password does not meet the required policy.',
-              });
+        if (result.session === 'revoked') clearPrivateAccountMemory(client);
+        showToast(
+          'Password updated',
+          'Password changed successfully. Sign in again.',
+          'success',
+        );
+      } catch (error) {
+        if (error instanceof ApiError && error.kind === 'cancelled') return;
+        if (
+          useAuthStore.getState().user !== session &&
+          !(
+            error instanceof ApiError &&
+            error.kind === 'unauthorized' &&
+            useAuthStore.getState().status === 'guest'
+          )
+        )
+          return;
+        if (error instanceof PasswordSessionCleanupError) {
+          form.reset(blank);
+          setVisible(hidden);
+          revokedOwner.current = session;
+          setSignOutRequired(true);
+          showToast('Sign out required', error.message, 'error');
+          return;
         }
+        let message = changePasswordErrorMessage(error);
+        if (error instanceof ApiError && error.kind === 'validation') {
+          const mapping = {
+            current_password: 'currentPassword',
+            password: 'newPassword',
+            password_confirmation: 'confirmPassword',
+          } as const;
+          for (const [key, field] of Object.entries(mapping)) {
+            const errors = error.fields?.[key];
+            if (Array.isArray(errors) && typeof errors[0] === 'string') {
+              const safe =
+                /^(The current password is incorrect\.|The (?:current password|password|password confirmation) (?:field is required\.|confirmation does not match\.|field confirmation does not match\.|must be at least \d+ characters\.|field must be at least \d+ characters\.|must not exceed 72 bytes\.|field must be different from current password\.))$/.test(
+                  errors[0],
+                )
+                  ? errors[0]
+                  : 'Check this password field.';
+              form.setError(field, { type: 'server', message: safe });
+              if (safe === 'The current password is incorrect.') message = safe;
+            }
+          }
+        }
+        showToast('Password update failed', message, 'error');
+      } finally {
+        submitting.current = false;
+        request.current = null;
+        mutation.reset();
       }
-    } finally {
-      submitting.current = false;
-      mutation.reset();
-    }
-  });
+    },
+    () =>
+      showToast(
+        'Check password fields',
+        'Complete the required fields and check your new password confirmation.',
+        'warning',
+      ),
+  );
   const requirements = [
     ...(passwordChangePolicy?.minimumLength
       ? [

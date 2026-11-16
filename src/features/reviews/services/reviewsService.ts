@@ -3,6 +3,10 @@ import { ApiError } from '../../../types/api';
 import { useAuthStore } from '../../../store/authStore';
 import { isUiPreviewActive } from '../../../store/developmentStore';
 import {
+  getReceivedVisitorReviews,
+  getGivenReviews,
+} from './visitorReviewsService';
+import {
   ReviewOwner,
   ReviewsPage,
   ReviewsSummary,
@@ -80,19 +84,62 @@ async function feed(
   tab: ReviewsTab,
   owner: ReviewOwner,
   page: number,
-  _signal?: AbortSignal,
+  signal?: AbortSignal,
 ): Promise<ReviewsPage> {
   assertReviewAccess(owner);
   z.number().int().positive().parse(page);
   if (owner === 'demo')
     return { items: [], nextPage: null, visibilityConfirmed: true };
-  // GET /user/reviews returns a session-authenticated Blade view, not a Sanctum JSON API.
-  // No mobile route, visibility policy or pagination contract is verified. Do not guess one.
-  throw new ApiError(
-    (tab === 'visitors' ? 'Received reviews' : 'Authored reviews') +
-      ' are currently unavailable. Mobile review access is not connected yet.',
-    'unknown',
-  );
+  const sessionUser = useAuthStore.getState().user;
+  try {
+    const result = await (tab === 'visitors'
+      ? getReceivedVisitorReviews
+      : getGivenReviews)(page, signal);
+    if (signal?.aborted || useAuthStore.getState().user !== sessionUser)
+      throw new ApiError('Review request cancelled.', 'cancelled');
+    assertReviewAccess(owner);
+    return reviewsPageSchema.parse({
+      items: result.items.map(row => {
+        const person =
+          tab === 'visitors' ? row.reviewer : row.reviewed_customer;
+        const date = z.iso.date().safeParse(row.date_time);
+        return {
+          id: row.id,
+          fromUserId: row.reviewer.id,
+          toUserId: row.reviewed_customer.id,
+          rating: row.rating,
+          comment: row.review,
+          date: date.success ? date.data : null,
+          person: { id: person.id, name: person.display_name },
+          // Private historical reviews do not establish current public listing access.
+          listing: {
+            id: row.listing.id,
+            title: row.listing.title ?? undefined,
+            canOpen: false,
+          },
+        };
+      }),
+      nextPage: result.nextPage,
+      total: result.pagination.total,
+      visibilityConfirmed: true,
+    });
+  } catch (error) {
+    if (error instanceof ApiError)
+      throw new ApiError(reviewErrorMessage(error), error.kind, error.status);
+    throw new ApiError('Unable to read reviews. Please try again.', 'unknown');
+  }
+}
+export function reviewErrorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    if (error.kind === 'unauthorized') return 'Please sign in again.';
+    if (error.kind === 'forbidden') return 'Unable to access these reviews.';
+    if (error.kind === 'rate-limit')
+      return 'Too many attempts. Please wait before trying again.';
+    if (error.kind === 'network')
+      return 'Unable to connect or request timed out. Please try again.';
+    if (error.kind === 'cancelled') return 'Review request cancelled.';
+  }
+  return 'Reviews are temporarily unavailable. Please try again.';
 }
 export const reviewsService = {
   received: (owner: ReviewOwner, page: number, signal?: AbortSignal) =>

@@ -1,3 +1,4 @@
+import { categoriesDataSource, getCategories } from './categoriesService';
 import { ApiError } from '../../../types/api';
 import { getDemoListings } from '../../listings/development/demoListings';
 import { homeDestinations } from '../data/destinations';
@@ -15,9 +16,10 @@ const unavailable = (section: string): never => {
     'unknown',
   );
 };
-// No verified category/destination/latest/count contracts exist. These boundaries make no guessed requests.
+// Destinations/latest/count remain separate from the verified public Categories API.
 export const homeService = {
-  async categories(): Promise<HomeCategory[]> {
+  async categories(signal?: AbortSignal): Promise<HomeCategory[]> {
+    if (categoriesDataSource() === 'api') return getCategories(signal);
     requireStaticMarketplace();
     return [
       { id: 'Food Items', name: 'Food Items' },

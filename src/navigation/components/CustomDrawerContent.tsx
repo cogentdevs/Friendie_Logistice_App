@@ -20,7 +20,8 @@ import {
   Info,
   Home,
 } from 'lucide-react-native';
-import { useQueryClient } from '@tanstack/react-query';
+import { skipToken, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { Profile } from '../../features/profile/services/profileService';
 import { colors, spacing } from '../../theme';
 import { useDevelopmentStore } from '../../store/developmentStore';
 import { useAuthStore } from '../../store/authStore';
@@ -47,6 +48,20 @@ export function CustomDrawerContent(props: DrawerContentComponentProps) {
     state.status === 'authenticated' ? state.user : null,
   );
   const previewActive = useDevelopmentStore(state => state.previewActive);
+  // Observe ProfileScreen's owner-scoped cache without initiating any fetch.
+  const { data: cachedProfile } = useQuery<Profile>({
+    queryKey: ['profile', user?.id ?? 'guest'],
+    queryFn: skipToken,
+  });
+  const profile = user && cachedProfile?.id === user.id ? cachedProfile : null;
+  const displayName =
+    profile?.name?.trim() ||
+    user?.name ||
+    (previewActive ? 'UI Preview' : 'Guest');
+  const avatarUrl = profile?.avatarUrl || user?.avatarUrl || undefined;
+  const [failedAvatar, setFailedAvatar] = React.useState<string>();
+  const avatarKey = `${user?.id ?? 'guest'}:${avatarUrl ?? ''}`;
+  const verified = (profile?.verified ?? user?.verified) === true;
   const queryClient = useQueryClient();
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
@@ -73,17 +88,16 @@ export function CustomDrawerContent(props: DrawerContentComponentProps) {
     <DrawerContentScrollView {...props}>
       <View style={styles.identity}>
         <AppAvatar
-          name={user?.name ?? (previewActive ? 'UI Preview' : 'Guest')}
-          uri={user?.avatarUrl}
+          name={displayName}
+          uri={failedAvatar === avatarKey ? undefined : avatarUrl}
+          onError={() => setFailedAvatar(avatarKey)}
           size={64}
         />
         <AppText variant="headingMD" color={colors.navy}>
-          {user?.name ?? (previewActive ? 'UI Preview' : 'Guest')}
+          {displayName}
         </AppText>
         {user && (
-          <AppBadge
-            label={user.verified ? 'Verified' : 'Verification pending'}
-          />
+          <AppBadge label={verified ? 'Verified' : 'Verification pending'} />
         )}
         {(appConfig.navigationPreview || previewActive) && (
           <AppText variant="caption">Development preview</AppText>

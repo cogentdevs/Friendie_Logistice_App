@@ -19,7 +19,11 @@ import { AppText } from '../../../components/ui/AppText';
 import { AppButton } from '../../../components/ui/AppButton';
 import { colors } from '../../../theme';
 import { useMyListings } from '../hooks/useMyListings';
-import { MyListing, MyListingStatus } from '../services/myListingsService';
+import {
+  MyListing,
+  MyListingStatus,
+  myListingsErrorMessage,
+} from '../services/myListingsService';
 import { MyListingCard } from '../components/MyListingCard';
 export function MyListingsScreen({
   navigation,
@@ -184,7 +188,7 @@ export function MyListingsScreen({
               </AppText>
               <AppText accessibilityRole={query.isError ? 'alert' : undefined}>
                 {query.isError
-                  ? 'Your listings are unavailable. Check your connection or try again later.'
+                  ? myListingsErrorMessage(query.error)
                   : 'Your ' + status + ' listings will appear here.'}
               </AppText>
               {query.isError && (

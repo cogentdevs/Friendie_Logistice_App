@@ -9,6 +9,11 @@ import {
 import { passwordResetService } from '../src/features/auth/services/passwordResetService';
 import { appConfig } from '../src/constants/appConfig';
 import { ApiError } from '../src/types/api';
+import {
+  beginAuthFlow,
+  clearAuthFlow,
+  useAuthFlowStore,
+} from '../src/features/auth/store/authFlowStore';
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
   useIsFocused: () => true,
@@ -38,6 +43,7 @@ beforeEach(async () => {
   });
 });
 afterEach(async () => {
+  clearAuthFlow();
   await Renderer.act(async () => {
     tree.unmount();
     client.clear();
@@ -187,4 +193,37 @@ test('UI-only confirmation preview is labeled and makes no request', async () =>
   expect(send).not.toHaveBeenCalled();
   await press('Back to reset form');
   expect(input().props.value).toBe('  DEMO@Example.test  ');
+});
+
+test('safe Laravel email validation is shown inline without switching to confirmation', async () => {
+  const message = 'The email field must be a valid email address.';
+  jest
+    .spyOn(passwordResetService, 'request')
+    .mockRejectedValue(
+      new ApiError(message, 'validation', 422, { email: [message] }),
+    );
+  await fill();
+  await press('Send Reset Link');
+  expect(textPresent(message)).toBe(true);
+  expect(textPresent('Check Your Email')).toBe(false);
+});
+
+test('accepted recovery and returning to Login preserve the original protected action', async () => {
+  beginAuthFlow({ type: 'POST_LISTING', params: { listingType: 'carry' } });
+  const flow = useAuthFlowStore.getState().flow;
+  jest
+    .spyOn(passwordResetService, 'request')
+    .mockResolvedValue({ accepted: true });
+  await fill();
+  await press('Send Reset Link');
+  const backButtons = tree.root.findAll(
+    node =>
+      node.props.accessibilityLabel === 'Back to Sign In' &&
+      typeof node.props.onPress === 'function',
+  );
+  await Renderer.act(async () => {
+    backButtons.at(-1)!.props.onPress();
+  });
+  expect(popTo).toHaveBeenCalledWith('Login');
+  expect(useAuthFlowStore.getState().flow).toEqual(flow);
 });

@@ -164,9 +164,7 @@ export function ProfileDashboardScreen({ navigation }: Props) {
               <AppButton
                 title="Retry dashboard counts"
                 onPress={() => {
-                  data.active.refetch().catch(() => {});
-                  data.reviews.refetch().catch(() => {});
-                  data.messages.refetch().catch(() => {});
+                  data.refreshCounts().catch(() => {});
                 }}
               />
             )}

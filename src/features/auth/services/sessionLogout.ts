@@ -7,11 +7,23 @@ import { useListingBookmarks } from '../../listings/store/bookmarkStore';
 import { useMyListingsTabs } from '../../listings/store/myListingsStore';
 import { useChatDrafts } from '../../messages/store/chatDraftStore';
 import { useListingDraft } from '../../post-listing/store/listingDraftStore';
-import { useSearchStore } from '../../search/store/searchStore';
-import { useFilterDraftStore } from '../../search/store/filterDraftStore';
-import { useRecentSearchStore } from '../../search/store/recentSearchStore';
-import { useLocationStore } from '../../location/store/locationStore';
 import { clearPendingNotification } from '../../../navigation/navigationRef';
+import { secureStorage } from '../../../services/storage/secureStorage';
+import { ApiError } from '../../../types/api';
+// Used only after a server operation explicitly confirms token revocation.
+export async function clearRevokedSession(
+  token: string,
+  owner: NonNullable<ReturnType<typeof useAuthStore.getState>['user']>,
+) {
+  const current = () =>
+    useAuthStore.getState().status === 'authenticated' &&
+    useAuthStore.getState().user === owner;
+  const removed = await secureStorage.removeTokenIfCurrent(token, current);
+  if (!removed || !current())
+    throw new ApiError('Session changed.', 'cancelled');
+  cancelAuthentication();
+  useAuthStore.getState().clear();
+}
 // Also used on expiry/account replacement, without touching public preferences or credentials.
 export function clearPrivateAccountMemory(client: QueryClient) {
   clearPendingNotification();
@@ -33,19 +45,13 @@ export function logoutSession(client: QueryClient) {
     await client.cancelQueries().catch(() => {});
     // If Keychain removal fails this rejects and leaves authentication/navigation intact.
     await authService.logout();
-    useSearchStore.getState().reset();
-    useFilterDraftStore.getState().reset();
-    useLocationStore.getState().useWorldwide();
     useListingDraft.getState().discard();
     useMyListingsTabs.getState().clear();
     useChatDrafts.getState().clear();
     clearPendingNotification();
     const results = await Promise.allSettled([
       useListingBookmarks.getState().clearLocal(owner),
-      useRecentSearchStore.getState().clear(),
-      Promise.resolve(useLocationStore.persist.clearStorage()),
     ]);
-    useRecentSearchStore.setState({ items: [], ready: true });
     client.clear();
     useDevelopmentStore.setState({
       previewActive: false,

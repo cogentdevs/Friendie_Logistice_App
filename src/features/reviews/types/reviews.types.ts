@@ -19,7 +19,7 @@ export const reviewSchema = z.object({
   id: z.number().int().positive(),
   fromUserId: z.number().int().positive(),
   toUserId: z.number().int().positive(),
-  rating: z.number().min(1).max(5),
+  rating: z.number().int().min(0).max(5),
   comment: z.string().nullable().optional(),
   date: z.iso.date().nullable().optional(),
   person: z.object({
@@ -36,6 +36,7 @@ export const reviewSchema = z.object({
     .optional(),
 });
 export const reviewsPageSchema = z.object({
+  total: z.number().int().nonnegative().optional(),
   items: z.array(reviewSchema),
   nextPage: z.number().int().positive().nullable(),
   visibilityConfirmed: z.literal(true),

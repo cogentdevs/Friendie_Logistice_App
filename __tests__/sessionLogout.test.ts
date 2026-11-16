@@ -12,6 +12,8 @@ import { logoutSession } from '../src/features/auth/services/sessionLogout';
 import { secureStorage } from '../src/services/storage/secureStorage';
 import { apiClient } from '../src/services/api/apiClient';
 import { appConfig } from '../src/constants/appConfig';
+import { logoutApiService } from '../src/features/auth/services/logoutApiService';
+import { ApiError } from '../src/types/api';
 import { useAuthStore } from '../src/store/authStore';
 import { useDevelopmentStore } from '../src/store/developmentStore';
 import { useListingBookmarks } from '../src/features/listings/store/bookmarkStore';
@@ -22,6 +24,8 @@ let client: QueryClient,
   previous: { base: string; verified: boolean; ui: boolean };
 beforeEach(() => {
   jest.clearAllMocks();
+  (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+  (Keychain.resetGenericPassword as jest.Mock).mockResolvedValue(true);
   previous = {
     base: appConfig.apiBaseUrl,
     ui: appConfig.uiPreviewEnabled,
@@ -54,7 +58,7 @@ test('logout clears secure credentials and per-user caches and returns guest acc
   useSearchStore.getState().setFilters({ query: 'Private query' });
   client.setQueryData(['private'], { name: 'Private' });
   const post = jest.spyOn(apiClient, 'post'),
-    remove = jest.spyOn(secureStorage, 'removeToken');
+    remove = jest.spyOn(secureStorage, 'removeTokenIfCurrent');
   const result = await logoutSession(client);
   expect(result.cacheCleared).toBe(true);
   expect(remove).toHaveBeenCalledTimes(1);
@@ -63,32 +67,39 @@ test('logout clears secure credentials and per-user caches and returns guest acc
   expect(client.getQueryData(['private'])).toBeUndefined();
   expect(useChatDrafts.getState().threads).toEqual({});
   expect(useListingDraft.getState().values.weight).toBe('');
-  expect(useSearchStore.getState().filters).toEqual({});
+  expect(useSearchStore.getState().filters.query).toBe('Private query');
   expect(await AsyncStorage.getItem('friendie.bookmarks.8')).toBeNull();
   expect(useDevelopmentStore.getState().authEntryRequested).toBe(false);
 });
 test('Keychain failure keeps the real session and navigation state intact', async () => {
-  jest.spyOn(secureStorage, 'removeToken').mockRejectedValue(Error('Locked'));
+  jest
+    .spyOn(secureStorage, 'removeTokenIfCurrent')
+    .mockRejectedValue(Error('Locked'));
   client.setQueryData(['private'], { id: 8 });
   await expect(logoutSession(client)).rejects.toThrow('Locked');
   expect(useAuthStore.getState().status).toBe('authenticated');
   expect(useDevelopmentStore.getState().authEntryRequested).toBe(false);
   expect(client.getQueryData(['private'])).toEqual({ id: 8 });
 });
-test('offline remote revocation does not prevent safe local logout', async () => {
+test('offline remote revocation preserves session and private cache for retry', async () => {
   appConfig.apiBaseUrl = 'https://example.test';
   appConfig.authApiVerified = true;
-  const post = jest
-    .spyOn(apiClient, 'post')
-    .mockRejectedValue(Error('offline'));
-  await expect(logoutSession(client)).resolves.toMatchObject({
-    cacheCleared: true,
+  jest.spyOn(secureStorage, 'getToken').mockResolvedValue('test-token');
+  const revoke = jest
+    .spyOn(logoutApiService, 'revoke')
+    .mockRejectedValue(new ApiError('offline', 'network'));
+  client.setQueryData(['private'], { id: 8 });
+  await expect(logoutSession(client)).rejects.toMatchObject({
+    kind: 'network',
   });
-  expect(post).toHaveBeenCalledWith('/auth/logout');
-  expect(useAuthStore.getState().status).toBe('guest');
+  expect(revoke).toHaveBeenCalledWith('test-token');
+  expect(useAuthStore.getState().status).toBe('authenticated');
+  expect(client.getQueryData(['private'])).toEqual({ id: 8 });
 });
 test('concurrent logout attempts share a single cleanup operation', async () => {
-  const remove = jest.spyOn(secureStorage, 'removeToken').mockResolvedValue();
+  const remove = jest
+    .spyOn(secureStorage, 'removeTokenIfCurrent')
+    .mockResolvedValue(true);
   const first = logoutSession(client),
     second = logoutSession(client);
   expect(first).toBe(second);
@@ -110,7 +121,9 @@ test('query cancellation failure cannot prevent credential and private-state cle
   jest
     .spyOn(client, 'cancelQueries')
     .mockRejectedValue(new Error('cancel failed'));
-  const remove = jest.spyOn(secureStorage, 'removeToken').mockResolvedValue();
+  const remove = jest
+    .spyOn(secureStorage, 'removeTokenIfCurrent')
+    .mockResolvedValue(true);
   client.setQueryData(['private'], { id: 8 });
   await logoutSession(client);
   expect(remove).toHaveBeenCalledTimes(1);
@@ -122,13 +135,16 @@ test('real authenticated session still attempts verified revocation when a previ
   appConfig.authApiVerified = true;
   appConfig.uiPreviewEnabled = true;
   useDevelopmentStore.setState({ previewActive: true });
-  const post = jest
-    .spyOn(apiClient, 'post')
-    .mockRejectedValue(new Error('offline'));
-  const remove = jest.spyOn(secureStorage, 'removeToken').mockResolvedValue();
+  jest.spyOn(secureStorage, 'getToken').mockResolvedValue('test-token');
+  const revoke = jest
+    .spyOn(logoutApiService, 'revoke')
+    .mockResolvedValue('revoked');
+  const remove = jest
+    .spyOn(secureStorage, 'removeTokenIfCurrent')
+    .mockResolvedValue(true);
   client.setQueryData(['private'], { id: 8 });
   await logoutSession(client);
-  expect(post).toHaveBeenCalledWith('/auth/logout');
+  expect(revoke).toHaveBeenCalledWith('test-token');
   expect(remove).toHaveBeenCalledTimes(1);
   expect(client.getQueryData(['private'])).toBeUndefined();
   expect(useAuthStore.getState().status).toBe('guest');
@@ -155,4 +171,16 @@ test('account replacement discards a queued notification from the previous sessi
   } finally {
     clearPendingNotification();
   }
+});
+
+test('demo logout stays local, exits preview and preserves public browsing filters', async () => {
+  useAuthStore.getState().clear();
+  useDevelopmentStore.setState({ previewActive: true });
+  useSearchStore.getState().setFilters({ query: 'Dubai' });
+  const post = jest.spyOn(apiClient, 'post');
+  await logoutSession(client);
+  expect(post).not.toHaveBeenCalled();
+  expect(useDevelopmentStore.getState().previewActive).toBe(false);
+  expect(useSearchStore.getState().filters.query).toBe('Dubai');
+  expect(useAuthStore.getState().status).toBe('guest');
 });

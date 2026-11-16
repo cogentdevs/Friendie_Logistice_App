@@ -9,3 +9,11 @@ export const userSchema = z.object({
   avatarUrl: z.string().optional(),
   verified: z.boolean().optional(),
 }) satisfies z.ZodType<User>;
+export const loginResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    token: z.string().min(1).regex(/^\S+$/),
+    token_type: z.literal('Bearer'),
+    user: userSchema,
+  }),
+});

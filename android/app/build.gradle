@@ -2,6 +2,33 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+// Local HTTP is restricted to named development hosts and the configured API host.
+// These resources/manifests are absent from the normal release source set.
+def localApiNetworkResources = layout.buildDirectory.dir("generated/res/localApiNetwork")
+def mobileEnvironmentFile = file("../../src/app/config/environment.generated.json")
+def generateLocalApiNetworkConfig = tasks.register("generateLocalApiNetworkConfig") {
+    inputs.file(mobileEnvironmentFile)
+    outputs.dir(localApiNetworkResources)
+    doLast {
+        def environment = new groovy.json.JsonSlurper().parse(mobileEnvironmentFile)
+        def hosts = new LinkedHashSet(["localhost", "127.0.0.1", "10.0.2.2"])
+        if (environment.apiBaseUrl) {
+            def uri = new URI(environment.apiBaseUrl as String)
+            if (uri.scheme == "http") {
+                if (!uri.host || !(uri.host ==~ /[A-Za-z0-9.\-]+/))
+                    throw new GradleException("Local HTTP API host is invalid")
+                hosts.add(uri.host)
+            }
+        }
+        def resource = new File(localApiNetworkResources.get().asFile, "xml/local_api_network_security_config.xml")
+        resource.parentFile.mkdirs()
+        resource.text = '<network-security-config><base-config cleartextTrafficPermitted="false" />' +
+            '<domain-config cleartextTrafficPermitted="true">' +
+            hosts.collect { '<domain includeSubdomains="false">' + it + '</domain>' }.join('') +
+            '</domain-config></network-security-config>'
+    }
+}
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
@@ -82,6 +109,10 @@ def friendieCxxRoot = project.findProperty('FRIENDIE_CXX_ROOT') ?: (windowsHost
     : null)
 
 android {
+    sourceSets {
+        debug.res.srcDir(localApiNetworkResources.get().asFile)
+        staticTesting.res.srcDir(localApiNetworkResources.get().asFile)
+    }
     if (friendieCxxRoot) {
         externalNativeBuild {
             cmake {
@@ -144,6 +175,8 @@ android {
         }
     }
 }
+
+tasks.named("preBuild").configure { dependsOn(generateLocalApiNetworkConfig) }
 
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin

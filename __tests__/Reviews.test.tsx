@@ -39,6 +39,7 @@ const authored: Review = {
   person: { id: 9, name: 'Recipient fixture' },
 };
 const page = (items: Review[], nextPage: number | null = null) => ({
+  total: 123,
   items,
   nextPage,
   visibilityConfirmed: true as const,
@@ -114,7 +115,7 @@ afterEach(async () => {
   });
   jest.restoreAllMocks();
 });
-test('two tabs use distinct datasets and authoritative aggregates; Back and authorized listing routes work', async () => {
+test('two tabs use distinct datasets and server pagination total; Back and authorized listing routes work', async () => {
   await mount();
   expect(
     tree.root
@@ -135,7 +136,7 @@ test('two tabs use distinct datasets and authoritative aggregates; Back and auth
   expect(reviewsService.authored).not.toHaveBeenCalled();
   expect(tree.root.findByType(ReviewsRatingSummary).props.summary).toEqual({
     total: 123,
-    averageRating: 4.8,
+    averageRating: null,
   });
   await press('View listing 42');
   expect(navigation.navigate).toHaveBeenCalledWith('MainTabs', {
@@ -234,4 +235,93 @@ test('empty states remain separate; forbidden responses hide old records and sho
   expect(tree.root.findByType(FlatList).props.data).toEqual([]);
   await press('Retry reviews');
   expect(reviewsService.authored).toHaveBeenCalled();
+});
+
+test('rating zero, actual reviewer/comment/date and unavailable average keep existing card presentation', async () => {
+  jest
+    .mocked(reviewsService.received)
+    .mockResolvedValue(page([{ ...received, rating: 0 }]));
+  await mount();
+  expect(
+    tree.root.findAll(n => n.props.accessibilityLabel === 'Rating 0 out of 5')
+      .length,
+  ).toBeGreaterThan(0);
+  for (const text of [
+    'Reviewer fixture',
+    'Received fixture feedback',
+    '2026-11-01',
+    'Rating unavailable',
+  ])
+    expect(
+      tree.root.findAll(n => n.props.children === text).length,
+    ).toBeGreaterThan(0);
+  expect(reviewsService.summary).not.toHaveBeenCalled();
+});
+test('tabs keep independent page state and do not refetch the other feed on switching back', async () => {
+  jest
+    .mocked(reviewsService.received)
+    .mockImplementation(async (_owner, p) =>
+      p === 1 ? page([received], 2) : page([{ ...received, id: 3 }]),
+    );
+  await mount();
+  await Renderer.act(async () => {
+    tree.root.findByType(FlatList).props.onEndReached();
+    tree.root.findByType(FlatList).props.onEndReached();
+  });
+  await settle();
+  expect(reviewsService.received).toHaveBeenCalledTimes(2);
+  await press('Your Reviews');
+  expect(
+    tree.root.findByType(FlatList).props.data.map((item: Review) => item.id),
+  ).toEqual([2]);
+  await press('Visitors Reviews');
+  expect(
+    tree.root.findByType(FlatList).props.data.map((item: Review) => item.id),
+  ).toEqual([1, 3]);
+  expect(reviewsService.received).toHaveBeenCalledTimes(2);
+  expect(reviewsService.authored).toHaveBeenCalledTimes(1);
+});
+test('failed explicit retry uses one Toast; automatic initial failure is silent', async () => {
+  const Toast = require('react-native-toast-message').default;
+  const toast = jest.spyOn(Toast, 'show');
+  jest
+    .mocked(reviewsService.received)
+    .mockRejectedValue(new ApiError('private backend exception', 'network'));
+  await mount();
+  expect(toast).not.toHaveBeenCalled();
+  const retry = tree.root.findAll(
+    n => n.props.title === 'Retry reviews' && n.props.onPress,
+  )[0];
+  await Renderer.act(async () => {
+    retry.props.onPress();
+    retry.props.onPress();
+  });
+  await settle();
+  expect(toast).toHaveBeenCalledTimes(1);
+  expect(toast).toHaveBeenCalledWith({
+    type: 'error',
+    text1: 'Reviews unavailable',
+    text2: 'Unable to connect or request timed out. Please try again.',
+  });
+});
+test('account switch and logout cannot display the old account reviews', async () => {
+  await mount();
+  jest
+    .mocked(reviewsService.received)
+    .mockResolvedValue(page([{ ...received, id: 4, toUserId: 9 }]));
+  await Renderer.act(async () => {
+    useAuthStore
+      .getState()
+      .setUser({ id: 9, name: 'Other', email: 'other@example.test' });
+  });
+  await settle();
+  expect(
+    tree.root.findByType(FlatList).props.data.map((item: Review) => item.id),
+  ).toEqual([4]);
+  await Renderer.act(async () => {
+    useAuthStore.getState().clear();
+    client.clear();
+  });
+  await settle();
+  expect(tree.root.findByType(FlatList).props.data).toEqual([]);
 });

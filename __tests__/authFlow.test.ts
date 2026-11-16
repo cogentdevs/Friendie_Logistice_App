@@ -191,7 +191,7 @@ test('cancelled late login response never writes a token or authenticates', asyn
         finish = resolve;
       }),
   );
-  const store = jest.spyOn(secureStorage, 'setToken');
+  const store = jest.spyOn(secureStorage, 'setSession');
   const controller = new AbortController();
   const attempt = authService.login(
     { email: 'member@example.test', password: 'password' },

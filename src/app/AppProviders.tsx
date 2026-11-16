@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-query';
 import { useAuthStore } from '../store/authStore';
 import { ApiError } from '../types/api';
+import { AppToast } from '../components/ui/AppToast';
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -43,6 +44,7 @@ export function AppProviders({ children }: PropsWithChildren) {
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
           {children}
+          <AppToast />
         </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

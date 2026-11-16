@@ -1,3 +1,10 @@
+import { useEffect, useRef } from 'react';
+import Toast from 'react-native-toast-message';
+import { ApiError } from '../../../types/api';
+import {
+  categoriesDataSource,
+  categoriesErrorMessage,
+} from '../services/categoriesService';
 import { useQuery, QueryClient } from '@tanstack/react-query';
 import { useIsFocused } from '@react-navigation/native';
 import { useAuthStore } from '../../../store/authStore';
@@ -9,6 +16,13 @@ import { isStaticMarketplaceEnabled } from '../../listings/development/staticMar
 import { useProfile } from '../../profile/hooks/useProfile';
 import { homeService } from '../services/homeService';
 export function useHomeData() {
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const focused = useIsFocused(),
     owner = useAuthStore(s => s.user?.id);
   useDevelopmentStore(s => s.previewActive);
@@ -18,9 +32,38 @@ export function useHomeData() {
   const options = { enabled: focused, staleTime: 60000, retry: false as const };
   const categories = useQuery({
     ...options,
-    queryKey: ['home', 'categories', scope],
-    queryFn: homeService.categories,
+    queryKey: ['home', 'categories', categoriesDataSource()],
+    queryFn: ({ signal }) => homeService.categories(signal),
   });
+  const categoryRetry = useRef<ReturnType<typeof categories.refetch> | null>(
+    null,
+  );
+  const retryCategories = () => {
+    if (categoryRetry.current) return categoryRetry.current;
+    const request = categories
+      .refetch({ cancelRefetch: false })
+      .then(result => {
+        if (
+          mounted.current &&
+          result.isError &&
+          !(
+            result.error instanceof ApiError &&
+            result.error.kind === 'cancelled'
+          )
+        )
+          Toast.show({
+            type: 'error',
+            text1: 'Categories unavailable',
+            text2: categoriesErrorMessage(result.error),
+          });
+        return result;
+      })
+      .finally(() => {
+        categoryRetry.current = null;
+      });
+    categoryRetry.current = request;
+    return request;
+  };
   const destinations = useQuery({
     ...options,
     queryKey: ['home', 'destinations', scope],
@@ -39,14 +82,14 @@ export function useHomeData() {
   const summary = useProfile();
   const refresh = () =>
     Promise.allSettled([
-      categories.refetch(),
+      retryCategories(),
       destinations.refetch(),
       latest.refetch(),
       unread.refetch(),
       summary.query.refetch(),
     ]);
   return {
-    categories,
+    categories: { ...categories, refetch: retryCategories },
     destinations,
     latest,
     unread,

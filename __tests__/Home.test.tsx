@@ -1,3 +1,7 @@
+import Toast from 'react-native-toast-message';
+import * as profileService from '../src/features/profile/services/profileService';
+import { apiClient } from '../src/services/api/apiClient';
+import { ApiError } from '../src/types/api';
 import * as authFlow from '../src/features/auth/services/authFlowCoordinator';
 import {
   clearAuthFlow,
@@ -26,6 +30,7 @@ jest.mock('@react-navigation/native', () => ({
 }));
 let tree: ReactTestRenderer, client: QueryClient;
 const nav = { navigate: jest.fn(), openDrawer: jest.fn() };
+const originalTesting = appConfig.staticTestingBuild;
 const original = appConfig.uiPreviewEnabled;
 const originalStatic = appConfig.staticMarketplaceEnabled;
 async function settle() {
@@ -57,8 +62,13 @@ async function mount() {
   await settle();
 }
 beforeEach(() => {
+  // These Home tests isolate Categories/navigation from secure-session Profile tests.
+  jest
+    .spyOn(profileService, 'getProfile')
+    .mockRejectedValue(new ApiError('Offline', 'network'));
   clearAuthFlow();
   jest.clearAllMocks();
+  appConfig.staticTestingBuild = true;
   appConfig.uiPreviewEnabled = true;
   appConfig.staticMarketplaceEnabled = true;
   useDevelopmentStore.setState({
@@ -76,6 +86,7 @@ afterEach(async () => {
     client?.clear();
   });
   jest.restoreAllMocks();
+  appConfig.staticTestingBuild = originalTesting;
   appConfig.uiPreviewEnabled = original;
   appConfig.staticMarketplaceEnabled = originalStatic;
 });
@@ -376,13 +387,98 @@ test.each(['guest', 'authenticated'])(
     expect(useAuthStore.getState()).toBe(identity);
   },
 );
-test('disabled fixtures explain the build state without network text or retry', async () => {
+test('disabled unrelated fixtures retain their build state while Categories exposes API retry', async () => {
   appConfig.staticMarketplaceEnabled = false;
+  jest
+    .spyOn(homeService, 'categories')
+    .mockRejectedValue(new ApiError('Unavailable', 'network'));
   await mount();
   expect(present('Static marketplace content is disabled in this build.')).toBe(
     true,
   );
-  expect(button('Retry Categories')).toBeUndefined();
+  expect(button('Retry Categories')).toBeDefined();
   expect(button('Retry Destinations')).toBeUndefined();
   expect(button('Retry Latest ads')).toBeUndefined();
+});
+
+test.each(['guest', 'authenticated'])(
+  'real public categories render for %s and navigate with the real ID',
+  async status => {
+    appConfig.staticTestingBuild = false;
+    useDevelopmentStore.setState({ previewActive: false });
+    if (status === 'authenticated')
+      useAuthStore
+        .getState()
+        .setUser({ id: 81, name: 'Member', email: 'member@example.test' });
+    const get = jest.spyOn(apiClient, 'get').mockResolvedValue({
+      status: 200,
+      data: {
+        success: true,
+        message: 'OK',
+        data: {
+          items: [{ id: 403, name: 'Backend category', image_url: null }],
+        },
+      },
+    });
+    const toast = jest.spyOn(Toast, 'show');
+    await mount();
+    expect(button('Browse category Backend category')).toBeDefined();
+    expect(button('Browse category Documents')).toBeUndefined();
+    expect(
+      get.mock.calls.filter(([url]) => url === '/categories'),
+    ).toHaveLength(1);
+    await press('Browse category Backend category');
+    expect(nav.navigate).toHaveBeenLastCalledWith('Results');
+    expect(useSearchStore.getState().filters.category).toBe('403');
+    expect(toast).not.toHaveBeenCalled();
+    await Renderer.act(async () => {
+      useAuthStore.getState().clear();
+    });
+    await settle();
+    expect(button('Browse category Backend category')).toBeDefined();
+    expect(
+      get.mock.calls.filter(([url]) => url === '/categories'),
+    ).toHaveLength(1);
+  },
+);
+test('API initial failure stays inline and a failed explicit retry emits one Toast', async () => {
+  appConfig.staticTestingBuild = false;
+  jest
+    .spyOn(homeService, 'categories')
+    .mockRejectedValue(
+      new ApiError('Private server detail', 'rate-limit', 429),
+    );
+  const toast = jest.spyOn(Toast, 'show');
+  await mount();
+  expect(button('Retry Categories')).toBeDefined();
+  expect(toast).not.toHaveBeenCalled();
+  await press('Retry Categories');
+  expect(toast).toHaveBeenCalledTimes(1);
+  expect(toast).toHaveBeenCalledWith({
+    type: 'error',
+    text1: 'Categories unavailable',
+    text2: 'Too many attempts. Please wait before trying again.',
+  });
+});
+test('real Categories shows existing loading and empty states without sample fallback', async () => {
+  appConfig.staticTestingBuild = false;
+  let resolve!: (value: []) => void;
+  jest.spyOn(homeService, 'categories').mockImplementation(
+    () =>
+      new Promise<[]>(done => {
+        resolve = done;
+      }),
+  );
+  await mount();
+  expect(
+    tree.root.findAll(
+      node => node.props.accessibilityLabel === 'Loading Categories',
+    ).length,
+  ).toBeGreaterThan(0);
+  await Renderer.act(async () => {
+    resolve([]);
+  });
+  await settle();
+  expect(present('No categories available yet.')).toBe(true);
+  expect(button('Browse category Food Items')).toBeUndefined();
 });

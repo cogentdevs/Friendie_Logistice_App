@@ -8,6 +8,7 @@ import {
 import { editProfileSchema } from '../src/features/profile/schemas/editProfileSchema';
 import { profileEditService } from '../src/features/profile/services/profileEditService';
 import { apiClient } from '../src/services/api/apiClient';
+import { useAuthStore } from '../src/store/authStore';
 const valid = {
   name: ' Demo Traveller ',
   email: ' DEMO@Example.test ',
@@ -41,7 +42,7 @@ test('edit validation requires identity/calling code/phone and normalizes name/e
     }).success,
   ).toBe(false);
 });
-test('only valid local JPEG/PNG assets with known preview size are accepted', () => {
+test('supported local assets respect the verified upload size limit', () => {
   expect(
     validateAvatar({
       uri: 'file:///preview.jpg',
@@ -56,7 +57,6 @@ test('only valid local JPEG/PNG assets with known preview size are accepted', ()
       fileSize: 200,
     },
     { uri: 'file:///preview.heic', type: 'image/heic', fileSize: 200 },
-    { uri: 'file:///preview.png', type: 'image/png' },
     {
       uri: 'file:///preview.png',
       type: 'image/png',
@@ -100,29 +100,54 @@ test('valid gallery image is returned without EXIF/base64 and unexpected native 
     'Could not open the photo picker',
   );
 });
-test('unverified save never makes a request or returns fake success', async () => {
+test('guest save never makes a request or returns fake success', async () => {
+  useAuthStore.getState().clear();
   const patch = jest.spyOn(apiClient, 'patch'),
     post = jest.spyOn(apiClient, 'post');
   await expect(profileEditService.save(valid)).rejects.toThrow(
-    'not connected yet',
+    'Sign in with a real account',
   );
   expect(patch).not.toHaveBeenCalled();
   expect(post).not.toHaveBeenCalled();
 });
 
-test('website photo limit accepts 10 MB and rejects larger files', () => {
+test('verified avatar limit accepts 2 MiB and rejects larger files', () => {
   expect(
     validateAvatar({
       uri: 'file:///ten.png',
       type: 'image/png',
-      fileSize: 10 * 1024 * 1024,
+      fileSize: 2 * 1024 * 1024,
     }).fileSize,
-  ).toBe(10 * 1024 * 1024);
+  ).toBe(2 * 1024 * 1024);
   expect(() =>
     validateAvatar({
       uri: 'file:///large.png',
       type: 'image/png',
-      fileSize: 10 * 1024 * 1024 + 1,
+      fileSize: 2 * 1024 * 1024 + 1,
     }),
-  ).toThrow('10 MB');
+  ).toThrow('2 MB');
+});
+test('WebP and Android providers with unknown sizes can preview without fabricated metadata', () => {
+  expect(
+    validateAvatar({
+      uri: 'content://photos/42',
+      type: 'image/webp',
+      fileSize: -1,
+    }),
+  ).toMatchObject({
+    uri: 'content://photos/42',
+    type: 'image/webp',
+    fileSize: undefined,
+  });
+  expect(
+    validateAvatar({ uri: 'file:///preview.png', type: 'image/png' }).uri,
+  ).toBe('file:///preview.png');
+  expect(() =>
+    validateAvatar({
+      uri: 'file:///preview.png',
+      type: 'image/png',
+      width: 2049,
+      height: 1,
+    }),
+  ).toThrow('2048');
 });

@@ -34,6 +34,7 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 test('guest and member receive the same existing catalogue without authentication or HTTP', async () => {
+  appConfig.staticTestingBuild = true;
   const get = jest.spyOn(apiClient, 'get');
   const guestIdentity = useAuthStore.getState();
   const guest = await Promise.all([
@@ -88,7 +89,7 @@ test('production runtime excludes fixtures even with development and release pre
   appConfig.testingUiPreview = true;
   useDevelopmentStore.setState({ previewActive: true });
   expect(isStaticMarketplaceEnabled()).toBe(false);
-  await expect(homeService.categories()).rejects.toThrow('disabled');
+  await expect(homeService.destinations()).rejects.toThrow('disabled');
 });
 
 test.each([

@@ -8,6 +8,7 @@ import {
 import { getProfile } from '../services/profileService';
 export function useProfile() {
   const focused = useIsFocused(),
+    status = useAuthStore(state => state.status),
     owner = useAuthStore(state => state.user?.id),
     preview = useDevelopmentStore(state => state.previewActive),
     demo =
@@ -17,7 +18,8 @@ export function useProfile() {
   const query = useQuery({
     queryKey: ['profile', demo ? 'demo' : owner ?? 'guest'],
     queryFn: ({ signal }) => getProfile(signal),
-    enabled: focused,
+    enabled: focused && (demo || (status === 'authenticated' && !!owner)),
+    staleTime: 60000,
     retry: false,
   });
   return { query, demo };

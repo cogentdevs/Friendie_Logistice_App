@@ -78,7 +78,7 @@ export function LoginScreen({ navigation }: Props) {
     form.clearErrors();
     try {
       await login.mutateAsync(values);
-      // The central coordinator resumes only after token storage and profile validation.
+      // The coordinator resumes after the server-confirmed login is stored securely.
     } catch (error) {
       if (controller.current.signal.aborted) return;
       const message =
@@ -117,7 +117,9 @@ export function LoginScreen({ navigation }: Props) {
     coordinateAuthentication();
   });
   const submit = () =>
-    isUiPreviewAllowed() && (!guarded || appConfig.staticTestingBuild)
+    isUiPreviewAllowed() &&
+    (!guarded || appConfig.staticTestingBuild) &&
+    form.getValues('email').trim().toLowerCase() === uiTestingLogin.email
       ? openTestingPreview()
       : authenticate();
   const EyeIcon = showPassword ? EyeOff : Eye;
