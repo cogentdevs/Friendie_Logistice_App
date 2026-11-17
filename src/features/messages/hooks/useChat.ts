@@ -3,7 +3,9 @@ import {
   useDevelopmentStore,
 } from '../../../store/developmentStore';
 import { chatOwnerId } from '../development/demoChat';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMarkConversationRead } from './useMarkConversationRead';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Toast from 'react-native-toast-message';
 import { AppState } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import {
@@ -20,6 +22,8 @@ import {
   getMessages,
   sendMessage,
   ChatMessage,
+  compareChatOrder,
+  validateMessageText,
 } from '../services/chatService';
 import {
   emptyThread,
@@ -39,11 +43,7 @@ export function orderedMessages(pages: Page[]) {
       seen.add(item.id);
       return true;
     })
-    .sort(
-      (a, b) =>
-        Date.parse(a.createdAt) - Date.parse(b.createdAt) ||
-        a.id.localeCompare(b.id),
-    );
+    .sort(compareChatOrder);
 }
 export function useChat(id: string) {
   const focused = useIsFocused();
@@ -69,27 +69,61 @@ export function useChat(id: string) {
   const client = useQueryClient();
   const [error, setError] = useState(''),
     [blocked, setBlocked] = useState(false);
-  const enabled = focused && active;
+  const [sending, setSending] = useState(false);
+  const mounted = useRef(true);
+  const lifecycle = useRef(0);
+  useEffect(() => {
+    const generation = ++lifecycle.current;
+    mounted.current = true;
+    setSending(false);
+    setError('');
+    setBlocked(false);
+    return () => {
+      mounted.current = false;
+      lifecycle.current = generation + 1;
+    };
+  }, [id, user]);
+  const enabled = focused && active && !!owner;
+  const conversationKey = [
+    demo ? 'conversation' : 'chat.conversation.read',
+    cacheOwner,
+    id,
+  ];
+  const messagesKey = [demo ? 'messages' : 'chat.history.read', cacheOwner, id];
   const conversation = useQuery({
-    queryKey: ['conversation', cacheOwner, id],
+    queryKey: conversationKey,
     queryFn: ({ signal }) => getConversation(id, signal),
     enabled,
     retry: false,
-    refetchInterval: query =>
-      enabled && !demo && owner && query.state.status !== 'error'
-        ? 15000
-        : false,
+    staleTime: 30000,
   });
   const messages = useInfiniteQuery({
-    queryKey: ['messages', cacheOwner, id],
+    queryKey: messagesKey,
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam, signal }) => getMessages(id, pageParam, signal),
+    queryFn: async ({ pageParam, signal }) => {
+      const result = await getMessages(id, pageParam, signal);
+      if (
+        signal.aborted ||
+        (!demo &&
+          (useAuthStore.getState().user !== user ||
+            useAuthStore.getState().status !== 'authenticated'))
+      )
+        throw new ApiError('Chat request cancelled.', 'cancelled');
+      if (
+        !demo &&
+        result.data.some(
+          item =>
+            item.senderId !== owner &&
+            item.senderId !== conversation.data?.participant.id,
+        )
+      )
+        throw new ApiError('Conversation unavailable.', 'forbidden', 403);
+      return result;
+    },
     enabled: enabled && conversation.isSuccess,
     retry: false,
-    refetchInterval: query =>
-      enabled && !demo && owner && query.state.status !== 'error'
-        ? 15000
-        : false,
+    staleTime: 30000,
+    refetchOnMount: thread.uncertain ? 'always' : true,
     getNextPageParam: (last, _pages, _lastParam, params) =>
       last.nextCursor && !params.includes(last.nextCursor)
         ? last.nextCursor
@@ -98,6 +132,22 @@ export function useChat(id: string) {
   const server = useMemo(
     () => orderedMessages(messages.data?.pages ?? []),
     [messages.data],
+  );
+  const [visibleLatest, setVisibleLatest] = useState<string>();
+  useEffect(() => {
+    setVisibleLatest(undefined);
+  }, [id, user]);
+  useMarkConversationRead(
+    id,
+    !demo &&
+      enabled &&
+      conversation.isSuccess &&
+      messages.isSuccess &&
+      !messages.isFetching &&
+      !messages.isError,
+    visibleLatest,
+    server,
+    messages.dataUpdatedAt,
   );
   useEffect(() => {
     if (!owner) return;
@@ -120,8 +170,29 @@ export function useChat(id: string) {
       !conversation.isError &&
       messages.isSuccess &&
       !messages.isError &&
-      !blocked,
+      !blocked &&
+      !sending &&
+      (demo || !thread.uncertain),
   );
+  useEffect(() => {
+    if (demo || sending || !thread.uncertain) return;
+    const pending = thread.uncertain;
+    if (
+      server.some(
+        message =>
+          message.senderId === owner &&
+          Number(message.id) > pending.afterId &&
+          (message.body === pending.body ||
+            message.body === pending.body.trim()),
+      )
+    ) {
+      // A matching later server record is evidence of delivery, not a reason to resend.
+      useChatDrafts.getState().uncertain(key);
+      if (useChatDrafts.getState().threads[key]?.draft === pending.body)
+        useChatDrafts.getState().draft(key, '');
+      setError('');
+    }
+  }, [demo, sending, thread.uncertain, server, owner, key]);
   const transmit = useCallback(
     (item: LocalMessage) => {
       const flightKey = key + ':' + item.clientId;
@@ -185,6 +256,133 @@ export function useChat(id: string) {
     [canSend, owner, key, id, client, cacheOwner],
   );
   const send = useCallback(() => {
+    if (!demo) {
+      const flightKey = 'real:' + key;
+      if (inFlight.has(flightKey)) return inFlight.get(flightKey)!;
+      if (
+        !canSend ||
+        !user ||
+        useAuthStore.getState().user !== user ||
+        useChatDrafts.getState().threads[key]?.uncertain
+      )
+        return Promise.resolve();
+      const body = useChatDrafts.getState().threads[key]?.draft ?? '';
+      try {
+        validateMessageText(body);
+      } catch (failure) {
+        const text =
+          failure instanceof ApiError
+            ? failure.message
+            : 'Enter a valid message.';
+        setError(text);
+        Toast.show({
+          type: 'warning',
+          text1: 'Check your message',
+          text2: text,
+        });
+        return Promise.resolve();
+      }
+      const generation = lifecycle.current;
+      const current = () =>
+        mounted.current &&
+        lifecycle.current === generation &&
+        useAuthStore.getState().status === 'authenticated' &&
+        useAuthStore.getState().user === user;
+      const historyKey = ['chat.history.read', owner, id];
+      const afterId = server.reduce(
+        (max, message) => Math.max(max, Number(message.id) || 0),
+        0,
+      );
+      setSending(true);
+      setError('');
+      const operation = (async () => {
+        try {
+          await client.cancelQueries({ queryKey: historyKey, exact: true });
+          if (!current()) return;
+          useChatDrafts.getState().uncertain(key, { body, afterId });
+          const confirmed = await sendMessage(id, body, '');
+          if (!current()) return;
+          await client.cancelQueries({ queryKey: historyKey, exact: true });
+          if (!current()) return;
+          client.setQueryData<InfiniteData<Page>>(historyKey, existing =>
+            existing
+              ? {
+                  ...existing,
+                  pages: existing.pages.map((page, index) => ({
+                    ...page,
+                    data:
+                      index === 0
+                        ? [
+                            ...page.data.filter(
+                              message => message.id !== confirmed.id,
+                            ),
+                            confirmed,
+                          ]
+                        : page.data.filter(
+                            message => message.id !== confirmed.id,
+                          ),
+                  })),
+                }
+              : existing,
+          );
+          useChatDrafts.getState().uncertain(key);
+          if (useChatDrafts.getState().threads[key]?.draft === body)
+            useChatDrafts.getState().draft(key, '');
+          client
+            .invalidateQueries({
+              queryKey: ['messages.inbox', owner],
+              refetchType: 'none',
+            })
+            .catch(() => {});
+        } catch (failure) {
+          if (!current()) return;
+          const rejected =
+            failure instanceof ApiError &&
+            [400, 401, 403, 404, 422, 429].includes(failure.status ?? 0);
+          if (rejected) useChatDrafts.getState().uncertain(key);
+          if (
+            failure instanceof ApiError &&
+            [403, 404].includes(failure.status ?? 0)
+          )
+            setBlocked(true);
+          const fieldMessages =
+            failure instanceof ApiError ? failure.fields?.message : undefined;
+          const validationMessage =
+            Array.isArray(fieldMessages) && typeof fieldMessages[0] === 'string'
+              ? fieldMessages[0]
+              : undefined;
+          const text = rejected
+            ? failure instanceof ApiError && failure.status === 422
+              ? validationMessage || 'Check your message and try again.'
+              : failure instanceof ApiError && failure.status === 429
+              ? 'Too many messages. Please wait before trying again.'
+              : 'Message was rejected. Check your access and try again.'
+            : 'Delivery is not confirmed. Your draft is saved. Refresh history before sending again.';
+          setError(text);
+          Toast.show({
+            type:
+              failure instanceof ApiError && failure.status === 403
+                ? 'rejected'
+                : rejected
+                ? 'error'
+                : 'warning',
+            text1: rejected
+              ? 'Unable to send message'
+              : 'Delivery not confirmed',
+            text2: text,
+          });
+          if (!rejected)
+            client
+              .invalidateQueries({ queryKey: historyKey, exact: true })
+              .catch(() => {});
+        } finally {
+          if (current()) setSending(false);
+        }
+      })();
+      inFlight.set(flightKey, operation);
+      operation.finally(() => inFlight.delete(flightKey));
+      return operation;
+    }
     const draft = useChatDrafts.getState().threads[key]?.draft.trim();
     if (!canSend || chatOwnerId() !== owner || !draft || draft.length > 4000)
       return Promise.resolve();
@@ -202,7 +400,7 @@ export function useChat(id: string) {
     };
     useChatDrafts.getState().enqueue(key, item);
     return transmit(item);
-  }, [canSend, key, transmit, owner]);
+  }, [demo, canSend, key, transmit, owner, user, id, client, server]);
   const retry = useCallback(
     (clientId: string) => {
       const item = useChatDrafts
@@ -212,14 +410,66 @@ export function useChat(id: string) {
     },
     [key, transmit],
   );
-  const refetchConversation = conversation.refetch,
-    refetchMessages = messages.refetch;
+  const readFlight = useRef<Promise<unknown> | null>(null);
+  const notify = useCallback(
+    (failure: unknown) => {
+      if (
+        mounted.current &&
+        useAuthStore.getState().user === user &&
+        !(failure instanceof ApiError && failure.kind === 'cancelled')
+      )
+        Toast.show({
+          type: 'error',
+          text1: 'Unable to load chat',
+          text2:
+            failure instanceof ApiError && failure.kind === 'network'
+              ? 'Unable to connect or request timed out. Please try again.'
+              : 'Conversation could not be loaded. Please try again.',
+        });
+    },
+    [user],
+  );
+  const refetchConversation = conversation.refetch;
+  const refetchMessages = messages.refetch;
   const refresh = useCallback(() => {
+    if (readFlight.current || !owner) return readFlight.current;
     setBlocked(false);
     setError('');
-    refetchConversation().catch(() => {});
-    refetchMessages().catch(() => {});
-  }, [refetchConversation, refetchMessages]);
+    const operation = (async () => {
+      const metadata = await refetchConversation({ cancelRefetch: false });
+      if (metadata.error) {
+        notify(metadata.error);
+        return;
+      }
+      if (!mounted.current || useAuthStore.getState().user !== user) return;
+      const result = await refetchMessages({ cancelRefetch: false });
+      if (result.error) notify(result.error);
+    })().finally(() => {
+      readFlight.current = null;
+    });
+    readFlight.current = operation;
+    return operation;
+  }, [owner, user, refetchConversation, refetchMessages, notify]);
+  const loadEarlier = () => {
+    if (
+      readFlight.current ||
+      !owner ||
+      !messages.hasNextPage ||
+      messages.isFetching
+    )
+      return readFlight.current ?? Promise.resolve();
+    const operation = messages
+      .fetchNextPage({ cancelRefetch: false })
+      .then(result => {
+        if (result.error) notify(result.error);
+        return result;
+      })
+      .finally(() => {
+        readFlight.current = null;
+      });
+    readFlight.current = operation;
+    return operation;
+  };
   const setDraft = useCallback(
     (text: string) => {
       if (owner && chatOwnerId() === owner)
@@ -229,16 +479,18 @@ export function useChat(id: string) {
   );
   return {
     owner,
-    thread,
+    thread: demo ? thread : { draft: thread.draft, outbox: emptyThread.outbox },
     server,
     conversation,
-    messages,
+    messages: { ...messages, fetchNextPage: loadEarlier },
     canSend,
+    sending,
     error,
     send,
     retry,
     setDraft,
     refresh,
+    setVisibleLatest,
   };
 }
 export type TimelineMessage = ChatMessage | LocalMessage;

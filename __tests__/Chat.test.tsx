@@ -9,6 +9,14 @@ import {
 } from '../src/features/messages/hooks/useChat';
 import { useChatDrafts } from '../src/features/messages/store/chatDraftStore';
 import { useAuthStore } from '../src/store/authStore';
+import { useDevelopmentStore } from '../src/store/developmentStore';
+import { appConfig } from '../src/constants/appConfig';
+const previewConfig = appConfig.uiPreviewEnabled;
+function enableLocalDemo() {
+  appConfig.uiPreviewEnabled = true;
+  useAuthStore.getState().clear();
+  useDevelopmentStore.setState({ previewActive: true });
+}
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
   useIsFocused: () => true,
@@ -40,6 +48,7 @@ async function mount() {
 }
 beforeEach(() => {
   jest.clearAllMocks();
+  useDevelopmentStore.setState({ previewActive: false });
   Object.defineProperty(AppState, 'currentState', {
     value: 'active',
     configurable: true,
@@ -49,13 +58,11 @@ beforeEach(() => {
     .setUser({ id: 8, name: 'Member', email: 'm@example.test' });
   useChatDrafts.getState().clear();
   jest.spyOn(service, 'chatSendConfigured').mockReturnValue(true);
-  jest
-    .spyOn(service, 'getConversation')
-    .mockResolvedValue({
-      id: '42',
-      canSend: true,
-      participant: { id: 9, name: 'Traveller', deleted: false },
-    });
+  jest.spyOn(service, 'getConversation').mockResolvedValue({
+    id: '42',
+    canSend: true,
+    participant: { id: 9, name: 'Traveller', deleted: false },
+  });
   jest
     .spyOn(service, 'getMessages')
     .mockResolvedValue({ data: [], nextCursor: null });
@@ -66,8 +73,11 @@ afterEach(async () => {
     client?.clear();
   });
   jest.restoreAllMocks();
+  appConfig.uiPreviewEnabled = previewConfig;
+  useDevelopmentStore.setState({ previewActive: false });
 });
 test('pending is optimistic, duplicate tap sends once, acknowledgement replaces local row', async () => {
+  enableLocalDemo();
   let acknowledge!: (message: service.ChatMessage) => void;
   const send = jest.spyOn(service, 'sendMessage').mockImplementation(
     () =>
@@ -107,6 +117,7 @@ test('pending is optimistic, duplicate tap sends once, acknowledgement replaces 
   expect(current.server[0].status).toBe('sent');
 });
 test('failed retry keeps original idempotency key and draft remains separate', async () => {
+  enableLocalDemo();
   const send = jest
     .spyOn(service, 'sendMessage')
     .mockRejectedValueOnce(Error('offline'))
@@ -158,13 +169,11 @@ test('draft survives remount and is cleared on logout', async () => {
   expect(useChatDrafts.getState().threads).toEqual({});
 });
 test('deleted participant cannot send and chronological pages deduplicate', async () => {
-  jest
-    .spyOn(service, 'getConversation')
-    .mockResolvedValue({
-      id: '42',
-      canSend: false,
-      participant: { id: 9, name: 'Deleted', deleted: true },
-    });
+  jest.spyOn(service, 'getConversation').mockResolvedValue({
+    id: '42',
+    canSend: false,
+    participant: { id: 9, name: 'Deleted', deleted: true },
+  });
   const send = jest.spyOn(service, 'sendMessage');
   await mount();
   await settle();

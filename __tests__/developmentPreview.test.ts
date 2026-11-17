@@ -38,15 +38,41 @@ test('release runtime cannot enter preview even if the configuration flag is tru
 });
 
 test('explicit testing APK allows UI navigation without creating authentication', () => {
-  appConfig.uiPreviewEnabled = true;
-  appConfig.testingUiPreview = true;
   jest.replaceProperty(
     globalThis as typeof globalThis & { __DEV__: boolean },
     '__DEV__',
     false,
   );
-  const auth = useAuthStore.getState();
-  useDevelopmentStore.getState().enterPreview();
-  expect(useDevelopmentStore.getState().previewActive).toBe(true);
-  expect(useAuthStore.getState()).toBe(auth);
+  const originalStatic = appConfig.staticTestingBuild;
+  jest.isolateModules(() => {
+    const { NativeModules } = require('react-native');
+    const descriptor = Object.getOwnPropertyDescriptor(
+      NativeModules,
+      'FriendieAppMetadata',
+    );
+    // appConfig reads this native metadata at module initialization.
+    Object.defineProperty(NativeModules, 'FriendieAppMetadata', {
+      configurable: true,
+      value: { staticTesting: true },
+    });
+    try {
+      const isolatedConfig = require('../src/constants/appConfig').appConfig;
+      const isolatedAuth = require('../src/store/authStore').useAuthStore;
+      const isolatedPreview =
+        require('../src/store/developmentStore').useDevelopmentStore;
+      expect(isolatedConfig.staticTestingBuild).toBe(true);
+      expect(isolatedConfig.uiPreviewEnabled).toBe(true);
+      const auth = isolatedAuth.getState();
+      isolatedPreview.getState().enterPreview();
+      expect(isolatedPreview.getState().previewActive).toBe(true);
+      expect(isolatedAuth.getState()).toBe(auth);
+      isolatedPreview.getState().exitPreview();
+    } finally {
+      if (descriptor)
+        Object.defineProperty(NativeModules, 'FriendieAppMetadata', descriptor);
+      else delete NativeModules.FriendieAppMetadata;
+    }
+  });
+  expect(appConfig.staticTestingBuild).toBe(originalStatic);
+  expect(useDevelopmentStore.getState().previewActive).toBe(false);
 });

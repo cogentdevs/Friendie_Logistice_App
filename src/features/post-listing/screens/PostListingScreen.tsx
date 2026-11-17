@@ -1,7 +1,13 @@
 import { useAuthStore } from '../../../store/authStore';
 import { isStaticTestingPreviewActive } from '../../../store/developmentStore';
 import { requireAuth } from '../../auth/services/authFlowCoordinator';
-import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   Alert,
   BackHandler,
@@ -21,7 +27,7 @@ import {
 } from '@react-navigation/native';
 import { useHeaderHeight } from '@react-navigation/elements';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { MapPin, Package, Plane } from 'lucide-react-native';
+import { MapPin, Package, Plane, CreditCard } from 'lucide-react-native';
 import { PostStackParamList } from '../../../navigation/navigationTypes';
 import { BackButton } from '../../../navigation/components/BackButton';
 import { SafeScreen } from '../../../components/layout/SafeScreen';
@@ -29,21 +35,31 @@ import { KeyboardScreen } from '../../../components/layout/KeyboardScreen';
 import { ScreenContainer } from '../../../components/layout/ScreenContainer';
 import { AppText } from '../../../components/ui/AppText';
 import { GradientButton } from '../../../components/ui/GradientButton';
-import { RouteLocationPicker } from '../../location/components/RouteLocationPicker';
-import { locationLabel } from '../../search/types/search';
+import { AppInput } from '../../../components/ui/AppInput';
+import { ListingLocationPicker } from '../components/ListingLocationPicker';
+import { ListingReferencePicker } from '../components/ListingReferencePicker';
 import { colors } from '../../../theme';
 import { ListingDateField } from '../components/ListingDateField';
 import { ListingFormField } from '../components/ListingFormField';
 import { useListingDraft } from '../store/listingDraftStore';
-import { ListingDraft, listingDraftSchema } from '../types/listingDraft';
+import {
+  ListingDraft,
+  listingDraftSchema,
+  listingLocationLabel,
+} from '../types/listingDraft';
+import { beginListingDraft } from '../services/createListingService';
+import { ListingImageInput } from '../components/ListingImageInput';
 type Props = NativeStackScreenProps<
   PostStackParamList,
   'PostListing' | 'SendParcel' | 'CarryParcel'
 >;
 export function PostListingScreen({ navigation, route }: Props) {
+  const account = useAuthStore(state => state.user),
+    authStatus = useAuthStore(state => state.status);
   const focused = useIsFocused(),
     height = useHeaderHeight();
   const dirty = useListingDraft(state => state.dirty);
+  const imageRecovery = useListingDraft(state => state.imageRecovery);
   const initial = useRef(useListingDraft.getState().values);
   const requested =
     route.name === 'SendParcel'
@@ -55,6 +71,9 @@ export function PostListingScreen({ navigation, route }: Props) {
     alertOpen = useRef(false),
     continuing = useRef(false);
   const [picker, setPicker] = useState<'from' | 'to' | null>(null);
+  const [reference, setReference] = useState<
+    'categories' | 'currencies' | null
+  >(null);
   const form = useForm<ListingDraft>({
     resolver: zodResolver(listingDraftSchema),
     defaultValues: initial.current,
@@ -64,6 +83,11 @@ export function PostListingScreen({ navigation, route }: Props) {
   const { reset } = form;
   useFocusEffect(
     useCallback(() => {
+      if (
+        useAuthStore.getState().user !== account ||
+        useAuthStore.getState().status !== authStatus
+      )
+        return;
       const stored = useListingDraft.getState().values;
       const values =
         first.current && requested ? { ...stored, type: requested } : stored;
@@ -72,11 +96,21 @@ export function PostListingScreen({ navigation, route }: Props) {
       if (values.type !== stored.type)
         useListingDraft.getState().update(values);
       continuing.current = false;
-    }, [requested, reset]),
+    }, [requested, reset, account, authStatus]),
   );
+  useEffect(() => {
+    setPicker(null);
+    setReference(null);
+  }, [account, authStatus]);
   const values = form.watch(),
     errors = form.formState.errors;
-  const persist = () => useListingDraft.getState().update(form.getValues());
+  const persist = () => {
+    if (
+      useAuthStore.getState().user === account &&
+      useAuthStore.getState().status === authStatus
+    )
+      useListingDraft.getState().update(form.getValues());
+  };
   const confirmLeave = useCallback(
     (leave: () => void) => {
       if (alertOpen.current) return;
@@ -153,6 +187,11 @@ export function PostListingScreen({ navigation, route }: Props) {
   const next = form.handleSubmit(
     data => {
       if (
+        useAuthStore.getState().user !== account ||
+        useAuthStore.getState().status !== authStatus
+      )
+        return;
+      if (
         useAuthStore.getState().status !== 'authenticated' &&
         !isStaticTestingPreviewActive()
       ) {
@@ -166,6 +205,7 @@ export function PostListingScreen({ navigation, route }: Props) {
       continuing.current = true;
       Keyboard.dismiss();
       useListingDraft.getState().update(data);
+      beginListingDraft(data);
       navigation.navigate('ListingReview');
     },
     () => Keyboard.dismiss(),
@@ -230,10 +270,49 @@ export function PostListingScreen({ navigation, route }: Props) {
               );
             })}
           </View>
+          <Controller
+            control={form.control}
+            name="title"
+            render={({ field, fieldState }) => (
+              <AppInput
+                label="Title"
+                value={field.value ?? ''}
+                onChangeText={text => {
+                  field.onChange(text);
+                  persist();
+                }}
+                onBlur={field.onBlur}
+                error={fieldState.error?.message}
+                maxLength={255}
+              />
+            )}
+          />
+          <ListingFormField
+            label="Category"
+            icon={Package}
+            value={values.category?.name}
+            placeholder="Select category"
+            error={errors.category?.message}
+            onPress={() => {
+              Keyboard.dismiss();
+              setReference('categories');
+            }}
+          />
+          <ListingFormField
+            label="Currency"
+            icon={CreditCard}
+            value={values.currency}
+            placeholder="Select currency"
+            error={errors.currency?.message}
+            onPress={() => {
+              Keyboard.dismiss();
+              setReference('currencies');
+            }}
+          />
           <ListingFormField
             label="From"
             icon={MapPin}
-            value={values.from ? locationLabel(values.from) : undefined}
+            value={values.from ? listingLocationLabel(values.from) : undefined}
             placeholder="Select country, city or area"
             error={errors.from?.message}
             onPress={() => {
@@ -244,7 +323,7 @@ export function PostListingScreen({ navigation, route }: Props) {
           <ListingFormField
             label="To"
             icon={MapPin}
-            value={values.to ? locationLabel(values.to) : undefined}
+            value={values.to ? listingLocationLabel(values.to) : undefined}
             placeholder="Select country, city or area"
             error={errors.to?.message}
             onPress={() => {
@@ -253,11 +332,23 @@ export function PostListingScreen({ navigation, route }: Props) {
             }}
           />
           <ListingDateField
-            label={values.type === 'carry' ? 'Travel Date' : 'Delivery Date'}
+            label="Departure Date"
             value={values.date}
             error={errors.date?.message}
             onChange={date => {
               form.setValue('date', date, {
+                shouldDirty: true,
+                shouldValidate: form.formState.isSubmitted,
+              });
+              persist();
+            }}
+          />
+          <ListingDateField
+            label="Arrival / Reached Date"
+            value={values.reachedOn ?? ''}
+            error={errors.reachedOn?.message}
+            onChange={date => {
+              form.setValue('reachedOn', date, {
                 shouldDirty: true,
                 shouldValidate: form.formState.isSubmitted,
               });
@@ -291,11 +382,11 @@ export function PostListingScreen({ navigation, route }: Props) {
                       placeholderTextColor={colors.textMuted}
                       value={field.value}
                       onChangeText={text => {
-                        field.onChange(text.replace(',', '.'));
+                        field.onChange(text);
                         persist();
                       }}
                       onBlur={field.onBlur}
-                      keyboardType="decimal-pad"
+                      keyboardType="number-pad"
                       returnKeyType="done"
                       onSubmitEditing={() => Keyboard.dismiss()}
                       maxLength={24}
@@ -320,6 +411,19 @@ export function PostListingScreen({ navigation, route }: Props) {
               </View>
             )}
           />
+          <ListingImageInput
+            value={values.image}
+            disabled={!!imageRecovery}
+            onChange={image => {
+              if (
+                useAuthStore.getState().user !== account ||
+                useAuthStore.getState().status !== authStatus
+              )
+                return;
+              form.setValue('image', image, { shouldDirty: true });
+              persist();
+            }}
+          />
         </ScreenContainer>
         <View style={styles.footer}>
           <GradientButton
@@ -330,17 +434,51 @@ export function PostListingScreen({ navigation, route }: Props) {
         </View>
       </KeyboardScreen>
       {picker && (
-        <RouteLocationPicker
+        <ListingLocationPicker
+          key={picker}
           title={picker === 'from' ? 'From location' : 'To location'}
           value={values[picker]}
           onClose={() => setPicker(null)}
           onSelect={location => {
+            if (
+              useAuthStore.getState().user !== account ||
+              useAuthStore.getState().status !== authStatus
+            )
+              return;
             form.setValue(picker, location, {
               shouldDirty: true,
               shouldValidate: form.formState.isSubmitted,
             });
             persist();
             setPicker(null);
+          }}
+        />
+      )}
+      {reference && (
+        <ListingReferencePicker
+          title={
+            reference === 'categories' ? 'Select category' : 'Select currency'
+          }
+          kind={reference}
+          onClose={() => setReference(null)}
+          onSelect={option => {
+            if (
+              useAuthStore.getState().user !== account ||
+              useAuthStore.getState().status !== authStatus
+            )
+              return;
+            if (reference === 'categories' && typeof option.value !== 'string')
+              form.setValue('category', option.value, {
+                shouldDirty: true,
+                shouldValidate: form.formState.isSubmitted,
+              });
+            if (reference === 'currencies' && typeof option.value === 'string')
+              form.setValue('currency', option.value, {
+                shouldDirty: true,
+                shouldValidate: form.formState.isSubmitted,
+              });
+            persist();
+            setReference(null);
           }}
         />
       )}

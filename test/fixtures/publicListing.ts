@@ -1,0 +1,29 @@
+export const publicListingFixture = {
+  id: 123,
+  ad_type: 'Carring',
+  title: 'Trip',
+  short_description: 'Description',
+  description: 'Description',
+  image_url: null,
+  category: { id: 4, name: 'Documents' },
+  origin: { country_id: 1, country: 'Pakistan', city_id: 2, city: 'Karachi' },
+  destination: { country_id: 3, country: 'UAE', city_id: 4, city: 'Dubai' },
+  weight: 10,
+  weight_price: 25,
+  currency: 'USD',
+  departure_on: '2099-01-01',
+  reached_on: null,
+  is_featured: false,
+  created_at: '2026-11-17 10:00:00',
+  owner: { id: 9, display_name: 'Traveller', image_url: null },
+};
+export const conversationCreatedFixture = {
+  success: true,
+  message: 'Conversation created successfully.',
+  data: {
+    id: 42,
+    listing: { id: 123, title: 'Trip' },
+    other_participant: { id: 9, display_name: 'Traveller' },
+    created_at: '2026-11-17 10:00:00',
+  },
+};

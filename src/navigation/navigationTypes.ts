@@ -12,7 +12,7 @@ export type HomeStackParamList = {
   ListingDetails: {
     listingId: string;
     returnTo?: 'MyListings' | 'MyReviews';
-    resumeAction?: 'save' | 'request' | 'contact';
+    resumeAction?: 'save' | 'request' | 'contact' | 'message' | 'review';
   };
   Filters: undefined;
 };
@@ -22,7 +22,7 @@ export type ListingsStackParamList = {
   ListingDetails: {
     listingId: string;
     returnTo?: 'MyListings' | 'MyReviews';
-    resumeAction?: 'save' | 'request' | 'contact';
+    resumeAction?: 'save' | 'request' | 'contact' | 'message' | 'review';
   };
 };
 export type PostStackParamList = {

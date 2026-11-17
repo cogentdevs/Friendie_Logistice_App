@@ -1,3 +1,7 @@
+import { SubmitReviewDialog } from '../src/features/reviews/components/SubmitReviewDialog';
+import { InitialMessageDialog } from '../src/features/listings/components/InitialMessageDialog';
+import { getPublicListingDetails } from '../src/features/listings/services/publicListingsService';
+import { publicListingFixture } from '../test/fixtures/publicListing';
 import { RequestConfirmationDialog } from '../src/features/listings/components/RequestConfirmationDialog';
 import * as authFlow from '../src/features/auth/services/authFlowCoordinator';
 import { apiClient } from '../src/services/api/apiClient';
@@ -9,6 +13,8 @@ import { Alert, Image, Linking, Share } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ListingDetailsScreen } from '../src/features/listings/screens/ListingDetailsScreen';
 import * as service from '../src/features/listings/services/listingDetailsService';
+import * as ownDetails from '../src/features/listings/services/ownListingDetailsService';
+import { ownListingFixture } from '../test/fixtures/myListings';
 import { useAuthStore } from '../src/store/authStore';
 import { useListingBookmarks } from '../src/features/listings/store/bookmarkStore';
 import { navigationRef } from '../src/navigation/navigationRef';
@@ -62,7 +68,7 @@ async function settle() {
     await new Promise<void>(resolve => setTimeout(() => resolve(), 25));
   });
 }
-async function mount(returnTo?: 'MyReviews') {
+async function mount(returnTo?: 'MyReviews' | 'MyListings') {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
@@ -141,9 +147,46 @@ beforeEach(async () => {
 afterEach(async () => {
   await Renderer.act(async () => {
     tree?.unmount();
-    client?.clear();
   });
+  client?.clear();
   jest.restoreAllMocks();
+});
+
+test('My Listings opens the owner endpoint without public/demo data or demo cover', async () => {
+  const publicGet = jest.spyOn(service, 'getListingDetails');
+  const privateGet = jest
+    .spyOn(ownDetails, 'getOwnListingDetails')
+    .mockResolvedValue({
+      ...fixture,
+      ownerId: 88,
+      traveller: undefined,
+      contact: undefined,
+      coverImageUrl: 'http://media.example.test/own.jpg',
+      price: null,
+      currency: null,
+      status: 'pending',
+      backend: { ...ownListingFixture, status: 0 },
+    });
+  await mount('MyListings');
+  expect(privateGet).toHaveBeenCalledWith('12', expect.any(Object));
+  expect(privateGet).toHaveBeenCalledTimes(1);
+  expect(publicGet).not.toHaveBeenCalled();
+  expect(
+    tree.root
+      .findAllByType(Image)
+      .some(
+        node => node.props.source?.uri === 'http://media.example.test/own.jpg',
+      ),
+  ).toBe(true);
+  expect(
+    tree.root.findAll(node => node.props.children === 'Price unavailable')
+      .length,
+  ).toBeGreaterThan(0);
+  expect(
+    tree.root.findAll(node => node.props.title === 'Manage Listing').length,
+  ).toBeGreaterThan(0);
+  expect(client.getQueryData(['ownListingDetails', 88, '12'])).toBeDefined();
+  expect(client.getQueryData(['listingDetails', '12', 'demo'])).toBeUndefined();
 });
 test('fetches actual route ID and displays fee, units, verified identity and disabled unsupported request', async () => {
   const get = jest
@@ -438,4 +481,56 @@ test('offline revalidation keeps confirmation closed and never submits', async (
     false,
   );
   expect(post).not.toHaveBeenCalled();
+});
+
+test('real public identity enables the existing Message traveller icon and opens input without POST', async () => {
+  jest.spyOn(apiClient, 'get').mockResolvedValue({
+    status: 200,
+    data: { success: true, data: { ...publicListingFixture, id: 12 } },
+  });
+  const remote = await getPublicListingDetails('12');
+  jest.spyOn(service, 'getListingDetails').mockResolvedValue(remote);
+  const post = jest.spyOn(apiClient, 'post');
+  await mount();
+  const button = tree.root.findAll(
+    node =>
+      node.props.accessibilityLabel === 'Message traveller' &&
+      typeof node.props.onPress === 'function',
+  )[0];
+  expect(button.props.disabled).toBe(false);
+  await press('Message traveller');
+  expect(tree.root.findByType(InitialMessageDialog).props.visible).toBe(true);
+  expect(post).not.toHaveBeenCalled();
+});
+
+test('real Public Listing Details opens authorized review input without altering parcel requests', async () => {
+  jest
+    .spyOn(apiClient, 'get')
+    .mockResolvedValue({
+      status: 200,
+      data: { success: true, data: { ...publicListingFixture, id: 12 } },
+    });
+  const remote = await getPublicListingDetails('12');
+  jest.spyOn(service, 'getListingDetails').mockResolvedValue(remote);
+  const post = jest.spyOn(apiClient, 'post');
+  await mount();
+  await press('Write a review');
+  expect(tree.root.findByType(SubmitReviewDialog).props.visible).toBe(true);
+  expect(
+    tree.root.findByType(SubmitReviewDialog).props.draft.rating,
+  ).toBeNull();
+  expect(tree.root.findByType(RequestConfirmationDialog).props.visible).toBe(
+    false,
+  );
+  expect(post).not.toHaveBeenCalled();
+});
+test('static public listing keeps Write a review disabled', async () => {
+  jest.spyOn(service, 'getListingDetails').mockResolvedValue(fixture);
+  await mount();
+  const button = tree.root.findAll(
+    node =>
+      node.props.accessibilityLabel === 'Write a review' &&
+      typeof node.props.onPress === 'function',
+  )[0];
+  expect(button.props.disabled).toBe(true);
 });

@@ -5,6 +5,14 @@ const id = z
   .max(20);
 export const pendingActionSchema = z.discriminatedUnion('type', [
   z.object({
+    type: z.literal('SUBMIT_REVIEW'),
+    params: z.object({ listingId: id }),
+  }),
+  z.object({
+    type: z.literal('START_CONVERSATION'),
+    params: z.object({ listingId: id }),
+  }),
+  z.object({
     type: z.literal('POST_LISTING'),
     params: z
       .object({ listingType: z.enum(['send', 'carry']).optional() })

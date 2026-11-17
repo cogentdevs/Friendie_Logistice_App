@@ -74,18 +74,25 @@ test.each(['manual', 'gps'] as const)(
     });
   },
 );
-test('unverified listing contract sends no network request', async () => {
-  const old = appConfig.listingsApiVerified;
-  appConfig.listingsApiVerified = false;
-  const get = jest.spyOn(apiClient, 'get');
-  try {
-    await expect(getListings(1, {}, { mode: 'worldwide' })).rejects.toThrow(
-      'currently unavailable',
-    );
-    expect(get).not.toHaveBeenCalled();
-  } finally {
-    appConfig.listingsApiVerified = old;
-  }
+test('verified public contract ignores obsolete gate and uses public endpoint', async () => {
+  const get = jest
+    .spyOn(apiClient, 'get')
+    .mockResolvedValue({
+      status: 200,
+      data: {
+        success: true,
+        data: {
+          items: [],
+          pagination: { current_page: 1, per_page: 20, total: 0, last_page: 1 },
+        },
+      },
+    });
+  expect((await getListings(1, {}, { mode: 'worldwide' })).data).toEqual([]);
+  expect(get).toHaveBeenCalledWith('/listings', {
+    signal: undefined,
+    headers: { Authorization: false },
+    params: { page: 1, per_page: 20 },
+  });
 });
 
 // These cases exercise the non-fixture API contract, not the development catalogue.

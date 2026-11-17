@@ -1,12 +1,9 @@
+import { getPublicListings } from './publicListingsService';
 import {
   getDemoListings,
   isListingDemoMode,
 } from '../development/demoListings';
 import { z } from 'zod';
-import { apiClient } from '../../../services/api/apiClient';
-import { endpoints } from '../../../services/api/endpoints';
-import { appConfig } from '../../../constants/appConfig';
-import { ApiError } from '../../../types/api';
 import { SearchFilters } from '../../search/store/searchStore';
 import { LocationSelection } from '../../location/types/location';
 import { validateLocation } from '../../location/store/locationStore';
@@ -23,8 +20,8 @@ export const listingSchema = z.object({
   destination: z.string(),
   departureDate: z.string(),
   category: z.string(),
-  price: z.number().finite().nonnegative(),
-  currency: z.string().regex(/^[A-Z]{3}$/),
+  price: z.number().finite().nonnegative().nullable(),
+  currency: z.string().nullable(),
   traveller: z
     .object({
       id: z.number().int().positive(),
@@ -101,21 +98,7 @@ export async function getListings(
   filters: SearchFilters,
   location: LocationSelection,
   signal?: AbortSignal,
-) {
+): Promise<z.infer<typeof responseSchema>> {
   if (isListingDemoMode()) return getDemoListings(page, filters, location);
-  if (!appConfig.apiBaseUrl || !appConfig.listingsApiVerified)
-    throw new ApiError(
-      'Listing search is currently unavailable. Please try again later.',
-      'unknown',
-    );
-  if (filters.weightKg !== undefined || filters.destinationCountry)
-    throw new ApiError(
-      'Weight and country-ID search need a verified backend filter contract. These filters have not been sent.',
-      'unknown',
-    );
-  const { data } = await apiClient.get<unknown>(endpoints.listings, {
-    signal,
-    params: buildListingSearchParams(page, filters, location),
-  });
-  return responseSchema.parse(data);
+  return getPublicListings(page, filters, location, signal);
 }

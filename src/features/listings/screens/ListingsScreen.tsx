@@ -1,5 +1,6 @@
 import { requireAuth as requestAuthentication } from '../../auth/services/authFlowCoordinator';
 import { isListingDemoMode } from '../development/demoListings';
+import { ApiError } from '../../../types/api';
 import React, {
   useCallback,
   useEffect,
@@ -313,7 +314,10 @@ function Results({
               </AppText>
               <AppText accessibilityRole={query.isError ? 'alert' : undefined}>
                 {query.isError
-                  ? 'Listing search is unavailable. Check your connection or try again later.'
+                  ? query.error instanceof ApiError &&
+                    query.error.kind === 'validation'
+                    ? query.error.message
+                    : 'Listing search is unavailable. Check your connection or try again later.'
                   : 'Try a different route, date or radius.'}
               </AppText>
               <AppButton

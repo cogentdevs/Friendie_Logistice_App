@@ -12,12 +12,14 @@ export function SearchDatePicker({
   value,
   mode = 'range',
   title = 'Travel / Delivery Date',
+  allowPast = false,
   onApply,
   onClose,
 }: {
   value?: DateRange;
   mode?: 'single' | 'range';
   title?: string;
+  allowPast?: boolean;
   onApply: (range?: DateRange) => void;
   onClose: () => void;
 }) {
@@ -102,7 +104,7 @@ export function SearchDatePicker({
               const active = Boolean(
                   start && date >= start && date <= (end ?? start),
                 ),
-                disabled = date < today;
+                disabled = !allowPast && date < today;
               return (
                 <Pressable
                   key={date}

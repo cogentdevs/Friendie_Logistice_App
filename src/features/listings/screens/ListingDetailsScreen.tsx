@@ -1,4 +1,10 @@
+import { SubmitReviewDialog } from '../../reviews/components/SubmitReviewDialog';
+import { useSubmitReview } from '../../reviews/hooks/useSubmitReview';
+import { InitialMessageDialog } from '../components/InitialMessageDialog';
+import { isVerifiedPublicListing } from '../services/publicListingsService';
+import { useInitialConversation } from '../../messages/hooks/useInitialConversation';
 import { ListingContactSection } from '../components/ListingContactSection';
+import Toast from 'react-native-toast-message';
 import { RequestConfirmationDialog } from '../components/RequestConfirmationDialog';
 import { requireAuth as requestAuthentication } from '../../auth/services/authFlowCoordinator';
 import { isListingDemoMode } from '../development/demoListings';
@@ -67,7 +73,7 @@ export function ListingDetailsScreen({ navigation, route }: Props) {
   // Keying content resets image errors and menus when navigation changes listing IDs.
   return (
     <DetailsContent
-      key={id}
+      key={id + ':' + (route.params.returnTo ?? 'public')}
       navigation={navigation}
       id={id}
       returnTo={route.params.returnTo}
@@ -84,14 +90,34 @@ function DetailsContent({
   navigation: Props['navigation'];
   id: string;
   returnTo?: 'MyListings' | 'MyReviews';
-  resumeAction?: 'save' | 'request' | 'contact';
+  resumeAction?: 'save' | 'request' | 'contact' | 'message' | 'review';
 }) {
   const insets = useSafeAreaInsets();
   const focused = useIsFocused(),
-    query = useListingDetails(id);
+    query = useListingDetails(id, returnTo === 'MyListings');
   const detail = query.isError ? undefined : query.data;
   const user = useAuthStore(state => state.user);
   const authStatus = useAuthStore(state => state.status);
+  const privateRead =
+    returnTo === 'MyListings' && authStatus === 'authenticated';
+  const initial = useInitialConversation(
+    detail,
+    focused,
+    navigation.getState().routeNames.some(name => name === 'Home')
+      ? 'HomeStack'
+      : 'ListingsStack',
+  );
+  const openInitialMessage = initial.open;
+  const submitReviewForm = useSubmitReview(detail, focused);
+  const openReviewForm = submitReviewForm.open;
+  const retryFlight = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [confirming, setConfirming] = useState(false);
   const [checkingRequest, setCheckingRequest] = useState(false);
   const requestFlight = useRef(false);
@@ -161,6 +187,14 @@ function DetailsContent({
     )
       return;
     navigation.setParams({ resumeAction: undefined });
+    if (resumeAction === 'review') {
+      if (isVerifiedPublicListing(detail)) openReviewForm();
+      return;
+    }
+    if (resumeAction === 'message') {
+      if (isVerifiedPublicListing(detail)) openInitialMessage();
+      return;
+    }
     if (resumeAction === 'request') {
       reviewRequest().catch(() =>
         setActionError('Could not verify this listing. Please retry.'),
@@ -180,6 +214,8 @@ function DetailsContent({
     query.isFetching,
     navigation,
     reviewRequest,
+    openInitialMessage,
+    openReviewForm,
   ]);
   const { ids, owner, load, toggle } = useListingBookmarks();
   const [saving, setSaving] = useState(false),
@@ -292,9 +328,10 @@ function DetailsContent({
       ),
     });
   }, [navigation, back, saved, detail, saving, query.isFetching, save]);
-  const demoCover = isListingDemoMode()
-    ? require('../../../assets/demo-destinations/uae.jpg')
-    : undefined;
+  const demoCover =
+    !privateRead && isListingDemoMode()
+      ? require('../../../assets/demo-destinations/uae.jpg')
+      : undefined;
   const phone = detail ? permittedPhone(detail) : undefined;
   const requireAuth = () => {
     const current = useAuthStore.getState();
@@ -330,6 +367,10 @@ function DetailsContent({
     );
   };
   const message = () => {
+    if (isVerifiedPublicListing(detail)) {
+      initial.open();
+      return;
+    }
     if (!detail?.contact?.conversationId) return;
     if (useAuthStore.getState().status !== 'authenticated') {
       requestAuthentication({
@@ -444,7 +485,36 @@ function DetailsContent({
               <AppButton
                 title="Retry listing details"
                 onPress={() => {
-                  query.refetch().catch(() => {});
+                  if (retryFlight.current) return;
+                  retryFlight.current = true;
+                  const session = useAuthStore.getState();
+                  query
+                    .refetch({ cancelRefetch: false })
+                    .then(result => {
+                      if (
+                        mounted.current &&
+                        privateRead &&
+                        result.error &&
+                        useAuthStore.getState().user === session.user &&
+                        !(
+                          result.error instanceof ApiError &&
+                          result.error.kind === 'cancelled'
+                        )
+                      ) {
+                        Toast.show({
+                          type: 'error',
+                          text1: 'Unable to load listing',
+                          text2:
+                            result.error instanceof ApiError
+                              ? result.error.message
+                              : 'Please try again.',
+                        });
+                      }
+                    })
+                    .catch(() => {})
+                    .finally(() => {
+                      retryFlight.current = false;
+                    });
                 }}
               />
             )}
@@ -537,13 +607,22 @@ function DetailsContent({
                 accessibilityRole="button"
                 accessibilityLabel="Message traveller"
                 accessibilityState={{
-                  disabled: !detail.contact?.conversationId || query.isFetching,
+                  disabled:
+                    (!isVerifiedPublicListing(detail) &&
+                      !detail.contact?.conversationId) ||
+                    query.isFetching,
                 }}
-                disabled={!detail.contact?.conversationId || query.isFetching}
+                disabled={
+                  (!isVerifiedPublicListing(detail) &&
+                    !detail.contact?.conversationId) ||
+                  query.isFetching
+                }
                 onPress={message}
                 style={[
                   styles.contact,
-                  !detail.contact?.conversationId && styles.disabled,
+                  !isVerifiedPublicListing(detail) &&
+                    !detail.contact?.conversationId &&
+                    styles.disabled,
                 ]}
               >
                 <MessageCircle size={21} color={colors.primary} />
@@ -578,6 +657,18 @@ function DetailsContent({
             <AppText variant="caption">
               {detail.type === 'carry' ? 'Carry Parcel' : 'Send Parcel'}
             </AppText>
+            {returnTo !== 'MyListings' && (
+              <AppButton
+                title="Write a review"
+                variant="secondary"
+                disabled={
+                  !isVerifiedPublicListing(detail) ||
+                  query.isFetching ||
+                  user?.id === detail.ownerId
+                }
+                onPress={openReviewForm}
+              />
+            )}
             <ListingContactSection
               unavailableReason={requestReviewUnavailableReason(
                 detail,
@@ -599,18 +690,21 @@ function DetailsContent({
                 {detail.type === 'carry' ? 'Carrying Fee' : 'Delivery Fee'}
               </AppText>
               <AppText color={colors.primary} style={styles.amount}>
-                {formatPrice(detail.price, detail.currency)}
+                {detail.price != null && detail.currency
+                  ? formatPrice(detail.price, detail.currency)
+                  : 'Price unavailable'}
               </AppText>
             </View>
             <AppText variant="caption">
-              {isListingDemoMode()
+              {!privateRead && isListingDemoMode()
                 ? 'Development demo - sample listing and price'
                 : 'Saved listings are stored on this device.'}
             </AppText>
             {(!phone || !detail.contact?.conversationId) && (
               <AppText variant="caption">
                 {!phone ? 'Calling is unavailable for this listing. ' : ''}
-                {!detail.contact?.conversationId
+                {!isVerifiedPublicListing(detail) &&
+                !detail.contact?.conversationId
                   ? 'Messaging is unavailable for this listing.'
                   : ''}
               </AppText>
@@ -663,6 +757,25 @@ function DetailsContent({
           )}
         </View>
       )}
+      <SubmitReviewDialog
+        visible={submitReviewForm.visible}
+        draft={submitReviewForm.draft}
+        busy={submitReviewForm.busy}
+        blocked={submitReviewForm.blocked}
+        notice={submitReviewForm.notice}
+        onChange={submitReviewForm.setDraft}
+        onSubmit={submitReviewForm.submit}
+        onCancel={submitReviewForm.close}
+      />
+      <InitialMessageDialog
+        visible={initial.visible}
+        draft={initial.draft}
+        busy={initial.busy}
+        blocked={initial.blocked}
+        onChange={initial.setDraft}
+        onSend={initial.send}
+        onCancel={initial.close}
+      />
       <RequestConfirmationDialog
         visible={confirming && authStatus === 'authenticated'}
         onCancel={() => setConfirming(false)}

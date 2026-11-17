@@ -35,7 +35,16 @@ test('public fixture availability has its own off switch', async () => {
   appConfig.staticMarketplaceEnabled = false;
   appConfig.uiPreviewEnabled = false;
   useDevelopmentStore.setState({ previewActive: true });
-  await expect(getListingDetails('900001')).rejects.toThrow('unavailable');
+  const get = jest
+    .spyOn(apiClient, 'get')
+    .mockRejectedValue(new Error('Remote listing absent'));
+  await expect(getListingDetails('900001')).rejects.toThrow(
+    'Remote listing absent',
+  );
+  expect(get).toHaveBeenCalledWith('/listings/900001', {
+    signal: undefined,
+    headers: { Authorization: false },
+  });
 });
 test('demo filters update the sample result count', () => {
   const carry = getDemoListings(1, { type: 'carry' }, { mode: 'worldwide' });

@@ -4,11 +4,16 @@ import { Alert, TextInput } from 'react-native';
 import Renderer, { ReactTestRenderer } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PostListingScreen } from '../src/features/post-listing/screens/PostListingScreen';
-import { RouteLocationPicker } from '../src/features/location/components/RouteLocationPicker';
+import { ListingLocationPicker } from '../src/features/post-listing/components/ListingLocationPicker';
+import { ListingReferencePicker } from '../src/features/post-listing/components/ListingReferencePicker';
 import { SearchDatePicker } from '../src/features/search/components/SearchDatePicker';
 import { useListingDraft } from '../src/features/post-listing/store/listingDraftStore';
 import { listingDraftSchema } from '../src/features/post-listing/types/listingDraft';
-import { routeFixture } from '../test/fixtures/search';
+import {
+  createListingDraft,
+  referenceResponse,
+} from '../test/fixtures/createListing';
+import { apiClient } from '../src/services/api/apiClient';
 import { localDate } from '../src/features/search/types/search';
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
@@ -32,7 +37,9 @@ const parentNavigate = jest.fn(),
     goBack: jest.fn(),
   };
 async function mount() {
-  client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
   await Renderer.act(async () => {
     tree = Renderer.create(
       <QueryClientProvider client={client}>
@@ -76,6 +83,9 @@ beforeEach(() => {
     .getState()
     .setUser({ id: 9, name: 'Member', email: 'member@example.test' });
   jest.clearAllMocks();
+  jest
+    .spyOn(apiClient, 'get')
+    .mockImplementation(async (url, config) => referenceResponse(url, config));
   useListingDraft.getState().discard();
 });
 afterEach(async () => {
@@ -100,27 +110,58 @@ test('empty/negative input cannot continue; switching type updates labels and pr
   ).toBe(true);
   expect(useListingDraft.getState().values.weight).toBe('-2');
 });
-test('structured route, single date and positive capacity reach next draft step', async () => {
+test('real reference selectors, title, two dates and integer capacity reach review', async () => {
   await mount();
+  await Renderer.act(async () =>
+    tree.root
+      .findAllByType(TextInput)
+      .find(node => node.props.accessibilityLabel === 'Title')!
+      .props.onChangeText('Travel parcel space'),
+  );
+  await press('Select Category');
+  await Renderer.act(async () =>
+    tree.root.findByType(ListingReferencePicker).props.onSelect({
+      key: '7',
+      label: 'Documents',
+      value: createListingDraft.category,
+    }),
+  );
+  await press('Select Currency');
+  await Renderer.act(async () =>
+    tree.root
+      .findByType(ListingReferencePicker)
+      .props.onSelect({ key: 'PKR', label: 'PKR', value: 'PKR' }),
+  );
   await press('Select From');
   await Renderer.act(async () =>
-    tree.root.findByType(RouteLocationPicker).props.onSelect(routeFixture.from),
+    tree.root
+      .findByType(ListingLocationPicker)
+      .props.onSelect(createListingDraft.from),
   );
   await press('Select To');
   await Renderer.act(async () =>
-    tree.root.findByType(RouteLocationPicker).props.onSelect(routeFixture.to),
+    tree.root
+      .findByType(ListingLocationPicker)
+      .props.onSelect(createListingDraft.to),
   );
-  await press('Select Travel Date');
+  await press('Select Departure Date');
   expect(tree.root.findByType(SearchDatePicker).props.mode).toBe('single');
   await press('Choose ' + localDate(new Date()));
   await press('Apply date');
-  await weight('15.5');
+  await press('Select Arrival / Reached Date');
+  await press('Choose ' + localDate(new Date()));
+  await press('Apply date');
+  await weight('15');
   await press('Continue');
   expect(navigation.navigate).toHaveBeenCalledWith('ListingReview');
   expect(useListingDraft.getState().values).toMatchObject({
-    from: routeFixture.from,
-    to: routeFixture.to,
-    weight: '15.5',
+    from: createListingDraft.from,
+    to: createListingDraft.to,
+    weight: '15',
+    title: 'Travel parcel space',
+    category: createListingDraft.category,
+    currency: 'PKR',
+    reachedOn: localDate(new Date()),
     date: localDate(new Date()),
   });
 });
@@ -148,26 +189,20 @@ test('draft survives remount and Back offers keep/discard without automatic data
   expect(parentNavigate).toHaveBeenCalledWith('HomeStack');
   expect(useListingDraft.getState().dirty).toBe(false);
 });
-test.each(['-1', 'NaN', 'Infinity', '0', '1e3', '1.2.3'])(
+test.each(['-1', 'NaN', 'Infinity', '1.5', '1e3', '1.2.3', '2147483648'])(
   'rejects invalid weight %s',
   weightText => {
     expect(
       listingDraftSchema.safeParse({
-        type: 'carry',
-        from: routeFixture.from,
-        to: routeFixture.to,
-        date: localDate(new Date()),
+        ...createListingDraft,
         weight: weightText,
       }).success,
     ).toBe(false);
   },
 );
-test('separate business labels, same-route and invalid/past dates are rejected', () => {
+test('backend permits same route and past dates; invalid dates and arrival order are rejected', () => {
   const base = {
-    from: routeFixture.from,
-    to: routeFixture.to,
-    date: localDate(new Date()),
-    weight: '3.5',
+    ...createListingDraft,
   };
   expect(listingDraftSchema.safeParse({ ...base, type: 'send' }).success).toBe(
     true,
@@ -176,9 +211,9 @@ test('separate business labels, same-route and invalid/past dates are rejected',
     listingDraftSchema.safeParse({
       ...base,
       type: 'carry',
-      to: routeFixture.from,
+      to: createListingDraft.from,
     }).success,
-  ).toBe(false);
+  ).toBe(true);
   expect(
     listingDraftSchema.safeParse({ ...base, type: 'send', date: '2020-02-31' })
       .success,
@@ -186,6 +221,9 @@ test('separate business labels, same-route and invalid/past dates are rejected',
   expect(
     listingDraftSchema.safeParse({ ...base, type: 'send', date: '2000-01-01' })
       .success,
+  ).toBe(true);
+  expect(
+    listingDraftSchema.safeParse({ ...base, reachedOn: '2000-01-01' }).success,
   ).toBe(false);
 });
 

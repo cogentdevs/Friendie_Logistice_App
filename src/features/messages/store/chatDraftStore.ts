@@ -7,7 +7,11 @@ export type LocalMessage = {
   createdAt: string;
   state: 'pending' | 'failed';
 };
-type Thread = { draft: string; outbox: LocalMessage[] };
+type Thread = {
+  draft: string;
+  outbox: LocalMessage[];
+  uncertain?: { body: string; afterId: number };
+};
 const empty: Thread = { draft: '', outbox: [] };
 export const threadKey = (owner: number, id: string) => owner + ':' + id;
 export const useChatDrafts = create<{
@@ -17,6 +21,7 @@ export const useChatDrafts = create<{
   status: (key: string, id: string, state: LocalMessage['state']) => void;
   remove: (key: string, id: string) => void;
   clear: () => void;
+  uncertain: (key: string, value?: { body: string; afterId: number }) => void;
 }>(set => ({
   threads: {},
   draft: (key, text) =>
@@ -62,6 +67,13 @@ export const useChatDrafts = create<{
       },
     })),
   clear: () => set({ threads: {} }),
+  uncertain: (key, value) =>
+    set(state => ({
+      threads: {
+        ...state.threads,
+        [key]: { ...(state.threads[key] ?? empty), uncertain: value },
+      },
+    })),
 }));
 useAuthStore.subscribe((state, previous) => {
   if (state.user?.id !== previous.user?.id || state.status !== 'authenticated')

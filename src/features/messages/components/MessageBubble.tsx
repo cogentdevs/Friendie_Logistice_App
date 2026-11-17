@@ -19,10 +19,12 @@ export const MessageBubble = memo(function MessageBubbleView({
 }) {
   const local = 'state' in message;
   const foreground = outgoing ? colors.white : colors.navy;
-  const stamp = new Date(message.createdAt).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const stamp = message.createdAt
+    ? new Date(message.createdAt).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : 'Time unavailable';
   return (
     <View style={styles.group}>
       {!!day && (

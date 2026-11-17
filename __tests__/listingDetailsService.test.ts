@@ -1,3 +1,4 @@
+import { publicListingFixture } from '../test/fixtures/publicListing';
 import { appConfig } from '../src/constants/appConfig';
 import { apiClient } from '../src/services/api/apiClient';
 import {
@@ -20,19 +21,10 @@ const detail: ListingDetail = {
   currency: 'USD',
 };
 afterEach(() => jest.restoreAllMocks());
-test('unverified details and invalid IDs never call a guessed endpoint', async () => {
-  const old = appConfig.listingDetailsApiVerified;
-  appConfig.listingDetailsApiVerified = false;
+test('invalid IDs never call a guessed endpoint', async () => {
   const get = jest.spyOn(apiClient, 'get');
-  try {
-    await expect(getListingDetails('12')).rejects.toThrow('unavailable');
-    await expect(getListingDetails('../user')).rejects.toThrow(
-      'Invalid listing',
-    );
-    expect(get).not.toHaveBeenCalled();
-  } finally {
-    appConfig.listingDetailsApiVerified = old;
-  }
+  await expect(getListingDetails('../user')).rejects.toThrow('Invalid listing');
+  expect(get).not.toHaveBeenCalled();
 });
 test('explicit verified contract fetches ID with cancellation and rejects mismatched IDs', async () => {
   const previous = {
@@ -43,8 +35,14 @@ test('explicit verified contract fetches ID with cancellation and rejects mismat
   appConfig.listingDetailsApiVerified = true;
   const get = jest
     .spyOn(apiClient, 'get')
-    .mockResolvedValueOnce({ data: { data: detail } })
-    .mockResolvedValueOnce({ data: { data: { ...detail, id: 99 } } });
+    .mockResolvedValueOnce({
+      status: 200,
+      data: { success: true, data: { ...publicListingFixture, id: 12 } },
+    })
+    .mockResolvedValueOnce({
+      status: 200,
+      data: { success: true, data: { ...publicListingFixture, id: 99 } },
+    });
   const controller = new AbortController();
   try {
     await expect(
@@ -52,8 +50,11 @@ test('explicit verified contract fetches ID with cancellation and rejects mismat
     ).resolves.toMatchObject({ id: 12 });
     expect(get).toHaveBeenCalledWith('/listings/12', {
       signal: controller.signal,
+      headers: { Authorization: false },
     });
-    await expect(getListingDetails('12')).rejects.toThrow('did not match');
+    await expect(getListingDetails('12')).rejects.toThrow(
+      'Unable to read listing',
+    );
   } finally {
     appConfig.apiBaseUrl = previous.url;
     appConfig.listingDetailsApiVerified = previous.verified;

@@ -41,6 +41,7 @@ import { AppButton } from '../../../components/ui/AppButton';
 import { colors } from '../../../theme';
 import { ApiError } from '../../../types/api';
 import { chatPhone } from '../services/chatService';
+import { compareChatOrder } from '../services/chatService';
 import { TimelineMessage, useChat } from '../hooks/useChat';
 import { MessageBubble } from '../components/MessageBubble';
 import { useAuthStore } from '../../../store/authStore';
@@ -130,6 +131,7 @@ function ChatContent({ navigation, route }: Props) {
         ? 'Last seen ' + new Date(presence.lastSeenAt).toLocaleString()
         : undefined
       : undefined;
+  const refreshChat = chat.refresh;
   useLayoutEffect(() => {
     navigation.setOptions({
       title: 'Chat',
@@ -180,16 +182,9 @@ function ChatContent({ navigation, route }: Props) {
             cssInterop={false}
             accessibilityRole="button"
             accessibilityLabel="Conversation options"
-            onPress={() =>
-              Alert.alert(
-                'Conversation options',
-                'Messages refresh while this conversation is open. Attachments, reporting and blocking are not connected.',
-                [
-                  { text: 'Close', style: 'cancel' },
-                  { text: 'Refresh messages', onPress: chat.refresh },
-                ],
-              )
-            }
+            onPress={() => {
+              refreshChat();
+            }}
             style={styles.icon}
           >
             <MoreVertical size={22} color={colors.navy} />
@@ -205,7 +200,7 @@ function ChatContent({ navigation, route }: Props) {
     presenceText,
     phone,
     call,
-    chat.refresh,
+    refreshChat,
   ]);
   const rows = useMemo(() => {
     const confirmed = new Set(
@@ -217,18 +212,15 @@ function ChatContent({ navigation, route }: Props) {
       ...chat.server,
       ...chat.thread.outbox.filter(item => !confirmed.has(item.clientId)),
     ];
-    items.sort(
-      (a, b) =>
-        Date.parse(a.createdAt) - Date.parse(b.createdAt) ||
-        rowId(a).localeCompare(rowId(b)),
-    );
+    items.sort(compareChatOrder);
     return items
       .map((message, index) => ({
         message,
         key: rowId(message),
         day:
-          index === 0 ||
-          dayKey(message.createdAt) !== dayKey(items[index - 1].createdAt)
+          message.createdAt &&
+          (index === 0 ||
+            dayKey(message.createdAt) !== dayKey(items[index - 1].createdAt))
             ? new Date(message.createdAt).toLocaleDateString(undefined, {
                 year: 'numeric',
                 month: 'short',
@@ -239,6 +231,27 @@ function ChatContent({ navigation, route }: Props) {
       .reverse();
   }, [chat.server, chat.thread.outbox, chat.owner]);
   const latest = rows[0]?.key;
+  const presented = useRef(chat.setVisibleLatest);
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 50,
+    minimumViewTime: 200,
+  }).current;
+  presented.current = chat.setVisibleLatest;
+  const onViewableItemsChanged = useRef(
+    ({
+      viewableItems,
+    }: {
+      viewableItems: { isViewable: boolean; item: TimelineRow }[];
+    }) => {
+      const newest = viewableItems
+        .filter(
+          item => item.isViewable && item.item && 'id' in item.item.message,
+        )
+        .map(item => (item.item.message as { id: string }).id)
+        .sort((a, b) => Number(b) - Number(a))[0];
+      presented.current?.(newest);
+    },
+  ).current;
   useEffect(() => {
     if (nearBottom) list.current?.scrollToOffset({ offset: 0, animated: true });
   }, [latest, nearBottom]);
@@ -313,6 +326,8 @@ function ChatContent({ navigation, route }: Props) {
               ref={list}
               inverted
               data={rows}
+              onViewableItemsChanged={onViewableItemsChanged}
+              viewabilityConfig={viewabilityConfig}
               renderItem={renderRow}
               keyExtractor={item => item.key}
               contentContainerStyle={styles.messages}
@@ -400,7 +415,9 @@ function ChatContent({ navigation, route }: Props) {
         )}
         {!chat.canSend && (
           <AppText variant="caption" style={styles.notice}>
-            {participant?.deleted
+            {chat.sending
+              ? 'Sending message...'
+              : participant?.deleted
               ? 'Sending is disabled for a deleted participant.'
               : loadError
               ? 'Sending is disabled until the conversation can be loaded.'
@@ -426,7 +443,7 @@ function ChatContent({ navigation, route }: Props) {
             onChangeText={chat.setDraft}
             editable={Boolean(chat.owner) && !participant?.deleted}
             multiline
-            maxLength={4000}
+            maxLength={isUiPreviewActive() ? 4000 : undefined}
             style={styles.input}
             textAlignVertical="center"
           />
@@ -435,6 +452,7 @@ function ChatContent({ navigation, route }: Props) {
             accessibilityRole="button"
             accessibilityLabel="Send message"
             accessibilityState={{
+              busy: chat.sending,
               disabled: !chat.canSend || !chat.thread.draft.trim(),
             }}
             disabled={!chat.canSend || !chat.thread.draft.trim()}
@@ -460,8 +478,8 @@ function rowId(message: TimelineMessage) {
     ? 'local:' + message.clientId
     : 'server:' + message.id;
 }
-function dayKey(value: string) {
-  return new Date(value).toLocaleDateString();
+function dayKey(value: string | null) {
+  return value ? new Date(value).toLocaleDateString() : '';
 }
 const styles = StyleSheet.create({
   headerActions: { flexDirection: 'row' },

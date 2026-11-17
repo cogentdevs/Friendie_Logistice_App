@@ -31,6 +31,7 @@ export function ListingDateField({
       />
       {open && (
         <SearchDatePicker
+          allowPast
           mode="single"
           title={label}
           value={value ? { start: value, end: value } : undefined}

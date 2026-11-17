@@ -69,7 +69,11 @@ export function authActionTarget(
             params: {
               listingId: action.params.listingId,
               resumeAction:
-                action.type === 'SAVE_LISTING'
+                action.type === 'SUBMIT_REVIEW'
+                  ? 'review'
+                  : action.type === 'START_CONVERSATION'
+                  ? 'message'
+                  : action.type === 'SAVE_LISTING'
                   ? 'save'
                   : action.type === 'REQUEST_LISTING'
                   ? 'request'

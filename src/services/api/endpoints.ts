@@ -1,5 +1,10 @@
 // Proposed contract: confirm these paths and response shapes with the Laravel team.
 export const endpoints = {
+  countries: '/countries',
+  cities: '/cities',
+  currencies: '/currencies',
+  submitReview: '/customer/reviews',
+  conversations: '/customer/conversations',
   receivedReviews: '/customer/reviews/received',
   givenReviews: '/customer/reviews/given',
   dashboard: '/customer/dashboard',

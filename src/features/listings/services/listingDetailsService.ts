@@ -1,10 +1,10 @@
 import { useAuthStore } from '../../../store/authStore';
+import { getPublicListingDetails } from './publicListingsService';
+
 import { getDemoListing, isListingDemoMode } from '../development/demoListings';
 import { z } from 'zod';
 import { listingSchema } from './listingsService';
-import { appConfig } from '../../../constants/appConfig';
-import { apiClient } from '../../../services/api/apiClient';
-import { endpoints } from '../../../services/api/endpoints';
+
 import { ApiError } from '../../../types/api';
 const httpsUrl = z
   .string()
@@ -17,7 +17,8 @@ export const listingDetailSchema = listingSchema.extend({
     .enum(['none', 'pending', 'accepted', 'rejected', 'cancelled'])
     .optional()
     .catch(undefined),
-  coverImageUrl: httpsUrl.optional().nullable(),
+  coverImageUrl: z.string().url().optional().nullable(),
+  description: z.string().nullable().optional(),
   itemTypes: z.array(z.string().min(1)).optional(),
   weight: z
     .object({
@@ -47,47 +48,14 @@ export async function getListingDetails(
     if (demo) return demo;
     throw new ApiError('Demo listing not found.', 'not-found', 404);
   }
-  if (!appConfig.apiBaseUrl || !appConfig.listingDetailsApiVerified)
-    throw new ApiError(
-      'Listing details are currently unavailable. Please try again later.',
-      'unknown',
-    );
-  const owner =
-    useAuthStore.getState().status === 'authenticated'
-      ? useAuthStore.getState().user?.id
-      : undefined;
-  const { data } = await apiClient.get<unknown>(
-    endpoints.listings + '/' + encodeURIComponent(id),
-    { signal },
-  );
-  const result = z.object({ data: listingDetailSchema }).parse(data).data;
-  if (String(result.id) !== id)
-    throw new ApiError(
-      'The listing response did not match this listing.',
-      'unknown',
-    );
-  const currentOwner =
-    useAuthStore.getState().status === 'authenticated'
-      ? useAuthStore.getState().user?.id
-      : undefined;
-  if (owner !== currentOwner)
+  const user = useAuthStore.getState().user;
+  const result = await getPublicListingDetails(id, signal);
+  if (useAuthStore.getState().user !== user)
     throw new ApiError('Session changed. Reload this listing.', 'cancelled');
-  if (!owner) {
-    // Never publish backend contact metadata or private request state into a guest cache.
-    const publicDetail = { ...result };
-    delete publicDetail.contact;
-    delete publicDetail.requestStatus;
-    return publicDetail;
-  }
-  // The accepted-request/participant contact contract has not been verified.
-  // Do not publish phone metadata merely because the viewer signed in.
-  if (result.contact) {
-    delete result.contact.phone;
-    delete result.contact.callPermitted;
-  }
   return result;
 }
-export function permittedPhone(_detail: ListingDetail): string | undefined {
+
+export function permittedPhone(_detail: unknown): string | undefined {
   // Fail closed until Laravel provides a verified accepted-request AND participant proof.
   // Authentication and a callPermitted flag alone are insufficient.
   return undefined;
@@ -95,7 +63,7 @@ export function permittedPhone(_detail: ListingDetail): string | undefined {
 // Only listing availability/ownership is established by the existing detail model.
 // The proposed requestStatus field has no verified current-viewer/participant semantics.
 export function requestReviewUnavailableReason(
-  detail: ListingDetail,
+  detail: { status: string; ownerId: number },
   userId?: number,
 ): string | undefined {
   if (detail.status !== 'active')

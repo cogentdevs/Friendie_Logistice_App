@@ -1,105 +1,248 @@
-import { appConfig } from '../src/constants/appConfig';
+import axios from 'axios';
 import { apiClient } from '../src/services/api/apiClient';
+import { appConfig } from '../src/constants/appConfig';
+import { secureStorage } from '../src/services/storage/secureStorage';
 import { useAuthStore } from '../src/store/authStore';
+import { useDevelopmentStore } from '../src/store/developmentStore';
 import {
   getConversation,
   getMessages,
   sendMessage,
+  normalizeChatTime,
+  chatSendConfigured,
 } from '../src/features/messages/services/chatService';
+
 const member = { id: 8, name: 'Member', email: 'm@example.test' };
-let config: { url: string; chat: boolean; idem: boolean };
+const metadata = {
+  id: 42,
+  listing: { id: 501, title: null },
+  other_participant: { id: 9, display_name: 'Traveller' },
+  created_at: null,
+};
+const message = {
+  id: 10,
+  conversation_id: 42,
+  sender: { id: 9, display_name: 'Traveller' },
+  message: 'Actual message',
+  created_at: '2026-11-17 10:00:00',
+  message_on: '17 Nov 2026',
+  is_read: false,
+};
+const page = (
+  current = 1,
+  last = 1,
+  items: Array<
+    Omit<typeof message, 'created_at'> & { created_at: string | null }
+  > = [message],
+) => ({
+  items,
+  pagination: {
+    current_page: current,
+    per_page: 20,
+    total: last * 20,
+    last_page: last,
+  },
+});
+const originalAdapter = apiClient.defaults.adapter;
+let data: unknown, calls: number;
 beforeEach(() => {
-  config = {
-    url: appConfig.apiBaseUrl,
-    chat: appConfig.chatApiVerified,
-    idem: appConfig.chatIdempotencyVerified,
-  };
   useAuthStore.getState().setUser(member);
+  useDevelopmentStore.setState({ previewActive: false });
+  jest
+    .spyOn(secureStorage, 'getToken')
+    .mockResolvedValue('chat-read-test-token');
+  data = metadata;
+  calls = 0;
+  apiClient.defaults.adapter = async config => {
+    calls++;
+    expect(config.method).toBe('get');
+    expect(config.baseURL).toBe(appConfig.apiBaseUrl);
+    expect(config.headers.Authorization).toBe('Bearer chat-read-test-token');
+    return {
+      status: 200,
+      statusText: '',
+      config,
+      headers: {},
+      data: { success: true, message: 'OK', data },
+    };
+  };
 });
 afterEach(() => {
-  appConfig.apiBaseUrl = config.url;
-  appConfig.chatApiVerified = config.chat;
-  appConfig.chatIdempotencyVerified = config.idem;
+  apiClient.defaults.adapter = originalAdapter;
   jest.restoreAllMocks();
 });
-test('unverified chat and guest access never transmit a request', async () => {
-  appConfig.chatApiVerified = false;
+test('verified metadata GET parses participant and keeps private contact/presence unavailable', async () => {
   const get = jest.spyOn(apiClient, 'get');
-  await expect(getConversation('42')).rejects.toThrow('unavailable');
-  useAuthStore.getState().clear();
-  await expect(getMessages('42', null)).rejects.toThrow('Sign in');
-  expect(get).not.toHaveBeenCalled();
+  expect(await getConversation('42')).toEqual({
+    id: '42',
+    canSend: true,
+    participant: { id: 9, name: 'Traveller' },
+  });
+  expect(get).toHaveBeenCalledWith(
+    '/customer/conversations/42',
+    expect.objectContaining({
+      headers: { Authorization: 'Bearer chat-read-test-token' },
+    }),
+  );
+  expect(get.mock.calls[0][1]?.params).toBeUndefined();
 });
-test('sending requires verified idempotency and retry reuses the exact key', async () => {
-  appConfig.apiBaseUrl = 'https://example.test';
-  appConfig.chatApiVerified = true;
-  appConfig.chatIdempotencyVerified = false;
-  const post = jest.spyOn(apiClient, 'post');
-  await expect(sendMessage('42', 'hello', 'client-1')).rejects.toThrow('retry');
-  expect(post).not.toHaveBeenCalled();
-  appConfig.chatIdempotencyVerified = true;
-  post.mockResolvedValue({
-    data: {
+test('history preserves real IDs, sender, full body, UTC timestamp and read proof', async () => {
+  data = page(1, 1, [{ ...message, message: 'x'.repeat(6000), is_read: true }]);
+  const get = jest.spyOn(apiClient, 'get');
+  const result = await getMessages('42', null);
+  expect(result.data[0]).toMatchObject({
+    id: '10',
+    conversationId: '42',
+    senderId: 9,
+    body: 'x'.repeat(6000),
+    createdAt: '2026-11-17T10:00:00.000Z',
+    status: 'read',
+  });
+  expect(get).toHaveBeenCalledWith(
+    '/customer/conversations/42/messages',
+    expect.objectContaining({ params: { page: 1, per_page: 20 } }),
+  );
+});
+test('newest page is resolved first, then earlier pages use documented page parameters', async () => {
+  const pages: number[] = [];
+  apiClient.defaults.adapter = async config => {
+    const number = config.params.page;
+    pages.push(number);
+    return {
+      status: 200,
+      statusText: '',
+      config,
+      headers: {},
       data: {
-        id: 'server-1',
-        conversationId: '42',
-        senderId: 8,
-        body: 'hello',
-        createdAt: '2026-11-05T10:00:00Z',
-        clientId: 'client-1',
-        status: 'sent',
+        success: true,
+        message: 'OK',
+        data: page(number, 3, [{ ...message, id: number * 10 }]),
       },
-    },
-  });
-  await sendMessage('42', ' hello ', 'client-1');
-  await sendMessage('42', 'hello', 'client-1');
-  for (const call of post.mock.calls)
-    expect(call).toEqual([
-      '/conversations/42/messages',
-      { body: 'hello', clientId: 'client-1' },
-      { headers: { 'Idempotency-Key': 'client-1' } },
-    ]);
+    };
+  };
+  expect((await getMessages('42', null)).nextCursor).toBe('2');
+  expect((await getMessages('42', '2')).nextCursor).toBe('1');
+  expect((await getMessages('42', '1')).nextCursor).toBeNull();
+  expect(pages).toEqual([1, 3, 2, 1]);
 });
-test('cross-conversation payloads are rejected and opaque cursors are supported', async () => {
-  appConfig.apiBaseUrl = 'https://example.test';
-  appConfig.chatApiVerified = true;
-  const get = jest.spyOn(apiClient, 'get').mockResolvedValue({
-    data: {
-      data: [
+test('empty history and null timestamp are truthful; unread does not invent sent/delivered status', async () => {
+  data = page(1, 1, [{ ...message, created_at: null }]);
+  expect((await getMessages('42', null)).data[0]).toMatchObject({
+    createdAt: null,
+  });
+  expect((await getMessages('42', null)).data[0].status).toBeUndefined();
+  data = page(1, 1, []);
+  expect((await getMessages('42', null)).data).toEqual([]);
+});
+test('guest/demo cannot access the private transport; demo stays separate', async () => {
+  useAuthStore.getState().clear();
+  await expect(getConversation('42')).rejects.toMatchObject({ status: 401 });
+  expect(calls).toBe(0);
+});
+test.each(['0', '-1', 'x', '01', '9007199254740992'])(
+  'rejects invalid room %s without HTTP',
+  async id => {
+    await expect(getConversation(id)).rejects.toMatchObject({ status: 404 });
+    expect(calls).toBe(0);
+  },
+);
+test.each(['opaque/cursor==', '0', '100001'])(
+  'rejects undocumented page token %s',
+  async cursor => {
+    await expect(getMessages('42', cursor)).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    expect(calls).toBe(0);
+  },
+);
+test.each([
+  null,
+  { ...metadata, id: 43 },
+  { ...metadata, other_participant: { id: 8, display_name: 'Self' } },
+])('rejects invalid metadata %j', async value => {
+  data = value;
+  await expect(getConversation('42')).rejects.toBeDefined();
+});
+test.each([
+  page(1, 1, [{ ...message, conversation_id: 43 }]),
+  page(2),
+  page(1, 1, [message, message]),
+  page(1, 1, [{ ...message, created_at: 'invalid' }]),
+  page(1, 1, [message, { ...message, id: 9 }]),
+])('rejects mismatched, malformed or out-of-order history', async value => {
+  data = value;
+  await expect(getMessages('42', null)).rejects.toBeDefined();
+});
+test.each([401, 403, 404, 422, 429, 500])(
+  'handles actual HTTP %s without returning private data',
+  async status => {
+    apiClient.defaults.adapter = async config => {
+      throw new axios.AxiosError(
+        'Request failed',
+        undefined,
+        config,
+        undefined,
         {
-          id: 'm1',
-          conversationId: 'other',
-          senderId: 8,
-          body: 'hello',
-          createdAt: '2026-11-05T10:00:00Z',
+          status,
+          statusText: '',
+          config,
+          headers: {},
+          data: { message: 'Failure' },
         },
-      ],
-      nextCursor: null,
-    },
-  });
-  await expect(getMessages('42', 'opaque/cursor==')).rejects.toThrow(
-    'unavailable',
+      );
+    };
+    await expect(getConversation('42')).rejects.toMatchObject({ status });
+  },
+);
+test.each(['ERR_NETWORK', 'ECONNABORTED'])(
+  'network/timeout %s preserves current session',
+  async code => {
+    apiClient.defaults.adapter = async config => {
+      throw new axios.AxiosError('Failed', code, config);
+    };
+    await expect(getMessages('42', null)).rejects.toMatchObject({
+      kind: 'network',
+    });
+    expect(useAuthStore.getState().user).toBe(member);
+  },
+);
+test.each(['logout', 'switch', 'token', 'abort'])(
+  'late response after %s is ignored',
+  async change => {
+    const controller = new AbortController();
+    apiClient.defaults.adapter = async config => {
+      if (change === 'logout') useAuthStore.getState().clear();
+      if (change === 'switch')
+        useAuthStore.getState().setUser({ ...member, id: 10 });
+      if (change === 'token')
+        jest.mocked(secureStorage.getToken).mockResolvedValue('new-token');
+      if (change === 'abort') controller.abort();
+      return {
+        status: 200,
+        statusText: '',
+        config,
+        headers: {},
+        data: { success: true, message: 'OK', data: metadata },
+      };
+    };
+    await expect(
+      getConversation('42', controller.signal),
+    ).rejects.toBeDefined();
+  },
+);
+test('guest send cannot transmit without authentication', async () => {
+  const post = jest.spyOn(apiClient, 'post');
+  useAuthStore.getState().clear();
+  expect(chatSendConfigured()).toBe(false);
+  await expect(sendMessage('42', 'Do not send', 'client-1')).rejects.toThrow(
+    'Sign in',
   );
-  expect(get).toHaveBeenCalledWith('/conversations/42/messages', {
-    signal: undefined,
-    params: { before: 'opaque/cursor==' },
-  });
+  expect(post).not.toHaveBeenCalled();
 });
-
-test('private messages arriving after an account change are discarded', async () => {
-  appConfig.apiBaseUrl = 'https://example.test';
-  appConfig.chatApiVerified = true;
-  let finish!: (value: any) => void;
-  jest.spyOn(apiClient, 'get').mockImplementationOnce(
-    () =>
-      new Promise(resolve => {
-        finish = resolve;
-      }),
+test('UTC conversion handles explicit offsets, missing values and invalid timestamps safely', () => {
+  expect(normalizeChatTime('2026-11-17T15:00:00+05:00')).toBe(
+    '2026-11-17T10:00:00.000Z',
   );
-  const pending = getMessages('42', null);
-  useAuthStore
-    .getState()
-    .setUser({ id: 9, name: 'Other', email: 'other@example.test' });
-  finish({ data: { data: [], nextCursor: null } });
-  await expect(pending).rejects.toMatchObject({ kind: 'cancelled' });
+  expect(normalizeChatTime(null)).toBeNull();
+  expect(() => normalizeChatTime('not a date')).toThrow();
 });

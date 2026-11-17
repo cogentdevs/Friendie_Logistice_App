@@ -17,7 +17,8 @@ import {
 import { Listing } from '../services/listingsService';
 import { AppText } from '../../../components/ui/AppText';
 import { colors } from '../../../theme';
-export function formatPrice(amount: number, currency: string) {
+export function formatPrice(amount: number | null, currency: string | null) {
+  if (amount === null || !currency) return 'Price unavailable';
   try {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',

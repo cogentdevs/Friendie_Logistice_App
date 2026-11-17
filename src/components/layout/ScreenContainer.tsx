@@ -16,6 +16,7 @@ export function ScreenContainer({
   scrollRef,
   onLayout,
   onContentSizeChange,
+  onScroll,
 }: PropsWithChildren<{
   scroll?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -23,12 +24,14 @@ export function ScreenContainer({
   scrollRef?: React.Ref<React.ComponentRef<typeof ScrollView>>;
   onLayout?: ScrollViewProps['onLayout'];
   onContentSizeChange?: ScrollViewProps['onContentSizeChange'];
+  onScroll?: ScrollViewProps['onScroll'];
 }>) {
   return scroll ? (
     <ScrollView
       ref={scrollRef}
       onLayout={onLayout}
       onContentSizeChange={onContentSizeChange}
+      onScroll={onScroll}
       style={[styles.root, { backgroundColor }]}
       contentContainerStyle={[styles.content, style]}
       keyboardShouldPersistTaps="handled"

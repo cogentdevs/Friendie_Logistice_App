@@ -1,25 +1,15 @@
-import {
-  getListingDetails,
-  ListingDetail,
-} from '../src/features/listings/services/listingDetailsService';
+import { publicListingFixture } from '../test/fixtures/publicListing';
+import { getListingDetails } from '../src/features/listings/services/listingDetailsService';
 import { apiClient } from '../src/services/api/apiClient';
 import { appConfig } from '../src/constants/appConfig';
 import { useAuthStore } from '../src/store/authStore';
 import { useDevelopmentStore } from '../src/store/developmentStore';
 const originalUrl = appConfig.apiBaseUrl,
   originalVerified = appConfig.listingDetailsApiVerified;
-const data: ListingDetail = {
+const data = {
+  ...publicListingFixture,
   id: 12,
-  ownerId: 7,
-  status: 'active',
-  type: 'carry',
   title: 'Public listing',
-  origin: 'Karachi',
-  destination: 'Dubai',
-  departureDate: '2099-01-01',
-  category: 'Documents',
-  price: 10,
-  currency: 'USD',
   contact: {
     phone: '+923001234567',
     conversationId: 'private-thread',
@@ -39,7 +29,9 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 test('public detail response drops contact and account request metadata before entering guest cache', async () => {
-  jest.spyOn(apiClient, 'get').mockResolvedValue({ data: { data } });
+  jest
+    .spyOn(apiClient, 'get')
+    .mockResolvedValue({ status: 200, data: { success: true, data } });
   const result = await getListingDetails('12');
   expect(result.title).toBe('Public listing');
   expect(result.contact).toBeUndefined();
@@ -51,10 +43,10 @@ test('login alone cannot publish phone data without accepted-participant authori
   useAuthStore
     .getState()
     .setUser({ id: 8, name: 'Member', email: 'member@example.test' });
-  jest.spyOn(apiClient, 'get').mockResolvedValue({ data: { data } });
-  expect((await getListingDetails('12')).contact).toEqual({
-    conversationId: 'private-thread',
-  });
+  jest
+    .spyOn(apiClient, 'get')
+    .mockResolvedValue({ status: 200, data: { success: true, data } });
+  expect((await getListingDetails('12')).contact).toBeUndefined();
 });
 test('an in-flight member response cannot populate a guest cache after session changes', async () => {
   useAuthStore
@@ -69,7 +61,7 @@ test('an in-flight member response cannot populate a guest cache after session c
   );
   const result = getListingDetails('12');
   useAuthStore.getState().clear();
-  finish({ data: { data } });
+  finish({ status: 200, data: { success: true, data } });
   await expect(result).rejects.toMatchObject({ kind: 'cancelled' });
 });
 
@@ -88,7 +80,10 @@ test.each([
       .setUser({ id: 8, name: 'Member', email: 'member@example.test' });
     jest
       .spyOn(apiClient, 'get')
-      .mockResolvedValue({ data: { data: { ...data, requestStatus } } });
+      .mockResolvedValue({
+        status: 200,
+        data: { success: true, data: { ...data, requestStatus } },
+      });
     const result = await getListingDetails('12');
     expect(result.contact?.phone).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain('+923001234567');
@@ -99,13 +94,16 @@ test.each([
 
 test('public mapping drops private email and phone fields from raw owner metadata', async () => {
   jest.spyOn(apiClient, 'get').mockResolvedValue({
+    status: 200,
     data: {
+      success: true,
       data: {
         ...data,
         createdByEmail: 'private@example.test',
-        traveller: {
+        owner: {
           id: 7,
-          name: 'Public display name',
+          display_name: 'Public display name',
+          image_url: null,
           email: 'private@example.test',
           phone: '+923001234567',
         },

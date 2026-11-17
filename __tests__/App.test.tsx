@@ -1,3 +1,4 @@
+import { createListingDraft } from '../test/fixtures/createListing';
 import { useBrowseFiltersStore } from '../src/features/listings/store/browseFiltersStore';
 import { RequestConfirmationDialog } from '../src/features/listings/components/RequestConfirmationDialog';
 import { ListingsScreen } from '../src/features/listings/screens/ListingsScreen';
@@ -50,6 +51,26 @@ import { VerifiedIntroScreen } from '../src/features/onboarding/screens/Verified
 import { navigationRef } from '../src/navigation/navigationRef';
 import { useUIStore } from '../src/store/uiStore';
 import { useAuthStore } from '../src/store/authStore';
+import * as Keychain from 'react-native-keychain';
+import { apiClient } from '../src/services/api/apiClient';
+import { secureStorage } from '../src/services/storage/secureStorage';
+import type { User } from '../src/types/user';
+
+const originalAdapter = apiClient.defaults.adapter;
+const originalNativeMocks = {
+  read: jest.mocked(Keychain.getGenericPassword).getMockImplementation()!,
+  write: jest.mocked(Keychain.setGenericPassword).getMockImplementation()!,
+  remove: jest.mocked(Keychain.resetGenericPassword).getMockImplementation()!,
+};
+let navigationCredential: false | { username: string; password: string } =
+  false;
+let unexpectedRequests: string[];
+async function establishNavigationSession(user: User) {
+  const token = 'navigation-test-token-' + user.id;
+  await secureStorage.setSession(token, user);
+  expect(await secureStorage.getSession()).toEqual({ token, user });
+  useAuthStore.getState().setUser(user);
+}
 
 let tree: ReactTestRenderer | undefined;
 const settle = async () => {
@@ -148,7 +169,94 @@ async function back() {
   await settle();
 }
 beforeEach(async () => {
-  // Navigation fixtures establish synthetic membership without a backend token.
+  // Local to these router tests: exercise real secureStorage over a stateful
+  // native mock, with no customer credential or external network dependency.
+  navigationCredential = false;
+  unexpectedRequests = [];
+  jest.spyOn(Keychain, 'getGenericPassword').mockImplementation(async () =>
+    navigationCredential
+      ? {
+          ...navigationCredential,
+          service: 'com.friendie.logistics.session',
+          storage: 'KeystoreAESGCM_NoAuth' as Keychain.STORAGE_TYPE,
+        }
+      : false,
+  );
+  jest
+    .spyOn(Keychain, 'setGenericPassword')
+    .mockImplementation(async (username, password) => {
+      navigationCredential = { username, password };
+      return {
+        service: 'com.friendie.logistics.session',
+        storage: 'KeystoreAESGCM_NoAuth' as Keychain.STORAGE_TYPE,
+      };
+    });
+  jest.spyOn(Keychain, 'resetGenericPassword').mockImplementation(async () => {
+    navigationCredential = false;
+    return true;
+  });
+  expect(await secureStorage.getToken()).toBeNull();
+  apiClient.defaults.adapter = async config => {
+    try {
+      let data: unknown;
+      if (config.url === '/categories' && config.method === 'get') {
+        expect(config.headers.Authorization).toBe(false);
+        data = { items: [{ id: 72, name: 'Food Items', image_url: null }] };
+      } else {
+        expect(useAuthStore.getState().status).toBe('authenticated');
+        expect(navigationCredential).not.toBe(false);
+        expect(config.headers.Authorization).toBe(
+          'Bearer ' + (navigationCredential && navigationCredential.password),
+        );
+        const pagination = {
+          current_page: config.params?.page ?? 1,
+          per_page: config.params?.per_page ?? 20,
+          total: 0,
+          last_page: 1,
+        };
+        if (config.method === 'get' && config.url === '/customer/dashboard')
+          data = {
+            listings: { total: 0, published: 0, pending: 0, expired: 0 },
+            unread_messages: 0,
+            reviews_received: 0,
+          };
+        else if (
+          config.method === 'get' &&
+          [
+            '/customer/listings',
+            '/customer/conversations',
+            '/customer/reviews/received',
+            '/customer/reviews/given',
+          ].includes(config.url ?? '')
+        )
+          data = { items: [], pagination };
+        else if (config.method === 'post' && config.url === '/auth/logout') {
+          expect(config.data).toBeUndefined();
+          data = {};
+        } else {
+          throw new Error('Missing navigation API fixture.');
+        }
+      }
+      return {
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config,
+        data: {
+          success: true,
+          message:
+            config.url === '/auth/logout'
+              ? 'Logout successful.'
+              : 'Navigation test fixture.',
+          data,
+        },
+      };
+    } catch (error) {
+      // Query error UI must not hide a failed request/header assertion.
+      unexpectedRequests.push(config.method + ' ' + config.url);
+      throw error;
+    }
+  };
   // Real Profile transport is covered separately by profileApi/ProfileApiScreen.
   appConfig.profileApiVerified = false;
   useBrowseFiltersStore.getState().reset();
@@ -173,8 +281,26 @@ afterEach(async () => {
     tree?.unmount();
   });
   tree = undefined;
+  await queryClient.cancelQueries();
+  queryClient.clear();
+  apiClient.defaults.adapter = originalAdapter;
+  jest.restoreAllMocks();
+  jest
+    .mocked(Keychain.getGenericPassword)
+    .mockReset()
+    .mockImplementation(originalNativeMocks.read);
+  jest
+    .mocked(Keychain.setGenericPassword)
+    .mockReset()
+    .mockImplementation(originalNativeMocks.write);
+  jest
+    .mocked(Keychain.resetGenericPassword)
+    .mockReset()
+    .mockImplementation(originalNativeMocks.remove);
+  navigationCredential = false;
   jest.clearAllTimers();
   jest.useRealTimers();
+  expect(unexpectedRequests).toEqual([]);
 });
 
 test('guest onboarding supports both introductions, Global Reach, Back and Skip without authenticating', async () => {
@@ -214,9 +340,11 @@ test('guest onboarding supports both introductions, Global Reach, Back and Skip 
 test('protected navigation exposes tabs, nested Post routes, and drawer pages', async () => {
   await mountGuest();
   await Renderer.act(async () => {
-    useAuthStore
-      .getState()
-      .setUser({ id: 1, name: 'Test traveller', email: 'test@example.test' });
+    await establishNavigationSession({
+      id: 1,
+      name: 'Test traveller',
+      email: 'test@example.test',
+    });
   });
   await settle();
   await settle();
@@ -470,7 +598,7 @@ test('hardware Back from direct Global Reach restores Verified and its preceding
 test('Home dashboard uses the real first name and routes every action through existing navigators', async () => {
   await mountGuest();
   await Renderer.act(async () => {
-    useAuthStore.getState().setUser({
+    await establishNavigationSession({
       id: 10,
       name: 'Ayesha Traveller',
       email: 'ayesha@example.test',
@@ -550,7 +678,7 @@ test('direct Search entry hides Home tabs and hardware Back restores Home', asyn
   try {
     await mountGuest();
     await Renderer.act(async () => {
-      useAuthStore.getState().setUser({
+      await establishNavigationSession({
         id: 1,
         name: 'Test traveller',
         email: 'traveller@example.test',
@@ -647,7 +775,7 @@ test('Filters applies manual geometry through the existing Search stack and rese
   useFilterDraftStore.getState().reset();
   await mountGuest();
   await Renderer.act(async () => {
-    useAuthStore.getState().setUser({
+    await establishNavigationSession({
       id: 1,
       name: 'Test traveller',
       email: 'traveller@example.test',
@@ -795,9 +923,11 @@ test('Listing Details opens its conversation and hardware Back restores that lis
   try {
     await mountGuest();
     await Renderer.act(async () => {
-      useAuthStore
-        .getState()
-        .setUser({ id: 8, name: 'Member', email: 'member@example.test' });
+      await establishNavigationSession({
+        id: 8,
+        name: 'Member',
+        email: 'member@example.test',
+      });
     });
     await settle();
     await Renderer.act(async () => {
@@ -849,10 +979,7 @@ test('Post form continues to draft review and preserves values through Back and 
     await authenticatePhase3();
     await Renderer.act(async () => {
       useListingDraft.getState().update({
-        type: 'carry',
-        from: routeFixture.from,
-        to: routeFixture.to,
-        date: '2099-01-01',
+        ...createListingDraft,
         weight: '12',
       });
       useListingDraft.getState().keep();
@@ -991,6 +1118,7 @@ test('authenticated Profile preserves seven menu actions; confirmed logout retur
   expect(navigationRef.canGoBack()).toBe(false);
   expect(useUIStore.getState().onboardingComplete).toBe(true);
   expect(queryClient.getQueryData(['private-phase3'])).toBeUndefined();
+  expect(await secureStorage.getToken()).toBeNull();
   expect(
     tree!.root.findAll(
       node => node.props.accessibilityLabel === 'Browse category Food Items',
@@ -1211,7 +1339,7 @@ test('returning authenticated session opens Home directly while preserving ident
   const restore = jest
     .spyOn(authService, 'restore')
     .mockImplementation(async () => {
-      useAuthStore.getState().setUser({
+      await establishNavigationSession({
         id: 73,
         name: 'Restored member',
         email: 'restored@example.test',
@@ -1311,9 +1439,11 @@ test('Phase 2: validated authentication resumes original Post flow once without 
   await settle();
   // Inject the result of the separately tested validated authentication service.
   await Renderer.act(async () => {
-    useAuthStore
-      .getState()
-      .setUser({ id: 55, name: 'Member', email: 'member@example.test' });
+    await establishNavigationSession({
+      id: 55,
+      name: 'Member',
+      email: 'member@example.test',
+    });
   });
   await settle();
   await settle();
@@ -1336,9 +1466,11 @@ test('Phase 2: Android/root Back cancels pending authentication', async () => {
 
 async function authenticatePhase3() {
   await Renderer.act(async () => {
-    useAuthStore
-      .getState()
-      .setUser({ id: 55, name: 'Member', email: 'member@example.test' });
+    await establishNavigationSession({
+      id: 55,
+      name: 'Member',
+      email: 'member@example.test',
+    });
   });
   await settle();
   await settle();
@@ -1502,9 +1634,11 @@ test('Phase 3 authenticated Messages and Post open directly; account switch clea
     useListingDraft
       .getState()
       .update({ ...useListingDraft.getState().values, weight: '33' });
-    useAuthStore
-      .getState()
-      .setUser({ id: 56, name: 'Other member', email: 'other@example.test' });
+    await establishNavigationSession({
+      id: 56,
+      name: 'Other member',
+      email: 'other@example.test',
+    });
   });
   await settle();
   await settle();
@@ -1613,6 +1747,9 @@ test('Phase 4 public Details request returns through Register/Login to the same 
 
 test('static marketplace browsing stays public while request, Post and Messages still require login', async () => {
   const originalUi = appConfig.uiPreviewEnabled;
+  const originalStatic = appConfig.staticTestingBuild;
+  const get = jest.spyOn(apiClient, 'get');
+  appConfig.staticTestingBuild = true;
   appConfig.uiPreviewEnabled = false;
   useDevelopmentStore.setState({ previewActive: false });
   try {
@@ -1649,8 +1786,11 @@ test('static marketplace browsing stays public while request, Post and Messages 
       await press('Cancel sign in');
       expect(navigationRef.getCurrentRoute()?.name).toBe('Home');
     }
+    expect(get.mock.calls.filter(([url]) => url === '/categories')).toEqual([]);
   } finally {
     appConfig.uiPreviewEnabled = originalUi;
+    appConfig.staticTestingBuild = originalStatic;
+    get.mockRestore();
   }
 });
 
@@ -1690,81 +1830,144 @@ test.each([
   ['Send Parcel', 'SendParcel'],
   ['Carry Parcel', 'CarryParcel'],
   ['Messages', 'Conversations'],
-] as const)('STATIC_TESTING demo Login resumes %s without a server session', async (entry, destination) => {
-  const previousStatic = appConfig.staticTestingBuild;
-  const previousUi = appConfig.uiPreviewEnabled;
-  try {
-    appConfig.staticTestingBuild = true;
-    appConfig.uiPreviewEnabled = true;
-    await openPhase2GuestHome();
-    await press(entry);
-    expect(navigationRef.getCurrentRoute()?.name).toBe('Login');
-    await press('Sign In');
-    await settle();
-    expect(navigationRef.getCurrentRoute()?.name).toBe(destination);
-    expect(useAuthStore.getState().status).toBe('guest');
-    expect(useDevelopmentStore.getState().previewActive).toBe(true);
-    expect(useAuthFlowStore.getState().flow).toBeNull();
-  } finally {
-    appConfig.staticTestingBuild = previousStatic;
-    appConfig.uiPreviewEnabled = previousUi;
-  }
-}, 30000);
+] as const)(
+  'STATIC_TESTING demo Login resumes %s without a server session',
+  async (entry, destination) => {
+    const previousStatic = appConfig.staticTestingBuild;
+    const previousUi = appConfig.uiPreviewEnabled;
+    try {
+      appConfig.staticTestingBuild = true;
+      appConfig.uiPreviewEnabled = true;
+      await openPhase2GuestHome();
+      await press(entry);
+      expect(navigationRef.getCurrentRoute()?.name).toBe('Login');
+      await press('Sign In');
+      await settle();
+      expect(navigationRef.getCurrentRoute()?.name).toBe(destination);
+      expect(useAuthStore.getState().status).toBe('guest');
+      expect(useDevelopmentStore.getState().previewActive).toBe(true);
+      expect(useAuthFlowStore.getState().flow).toBeNull();
+    } finally {
+      appConfig.staticTestingBuild = previousStatic;
+      appConfig.uiPreviewEnabled = previousUi;
+    }
+  },
+  30000,
+);
 
 test('every cold launch shows Splash before returning guest Home without repeating onboarding', async () => {
-  const { SplashScreen } = require('../src/features/onboarding/screens/SplashScreen');
-  await AsyncStorage.setItem('friendie.preferences', JSON.stringify({ state: { onboardingComplete: true }, version: 0 }));
+  const {
+    SplashScreen,
+  } = require('../src/features/onboarding/screens/SplashScreen');
+  await AsyncStorage.setItem(
+    'friendie.preferences',
+    JSON.stringify({ state: { onboardingComplete: true }, version: 0 }),
+  );
   for (let launch = 0; launch < 2; launch++) {
-    await Renderer.act(async () => { tree = Renderer.create(<App />); });
+    await Renderer.act(async () => {
+      tree = Renderer.create(<App />);
+    });
     expect(tree!.root.findAllByType(SplashScreen)).toHaveLength(1);
-    await Renderer.act(async () => { jest.advanceTimersByTime(999); });
+    await Renderer.act(async () => {
+      jest.advanceTimersByTime(999);
+    });
     expect(tree!.root.findAllByType(SplashScreen)).toHaveLength(1);
-    await Renderer.act(async () => { jest.advanceTimersByTime(1); });
+    await Renderer.act(async () => {
+      jest.advanceTimersByTime(1);
+    });
     await settle();
     expect(tree!.root.findAllByType(SplashScreen)).toHaveLength(0);
     expect(navigationRef.getCurrentRoute()?.name).toBe('Home');
-    await Renderer.act(async () => { tree!.unmount(); tree = undefined; });
+    await Renderer.act(async () => {
+      tree!.unmount();
+      tree = undefined;
+    });
   }
 }, 30000);
 
 test('real Logout API confirmation returns Guest Home and protects Post again', async () => {
-  const { apiClient } = require('../src/services/api/apiClient');
-  const { secureStorage } = require('../src/services/storage/secureStorage');
   await openPhase2GuestHome();
   await authenticatePhase3();
-  const token = jest.spyOn(secureStorage, 'getToken').mockResolvedValue('navigation-contract-token');
-  const remove = jest.spyOn(secureStorage, 'removeTokenIfCurrent').mockResolvedValue(true);
-  const post = jest.spyOn(apiClient, 'post').mockResolvedValue({status:200,data:{success:true,message:'Logout successful.',data:{}}});
+  const token = await secureStorage.getToken();
+  const remove = jest.spyOn(secureStorage, 'removeTokenIfCurrent');
+  const post = jest.spyOn(apiClient, 'post').mockResolvedValue({
+    status: 200,
+    data: { success: true, message: 'Logout successful.', data: {} },
+  });
   try {
     await press('Profile');
     await press('Logout');
     expect(post).not.toHaveBeenCalled();
     await press('Confirm logout');
     await settle();
-    expect(post).toHaveBeenCalledWith('/auth/logout',undefined,expect.objectContaining({headers:{Authorization:'Bearer navigation-contract-token'}}));
+    expect(post).toHaveBeenCalledWith(
+      '/auth/logout',
+      undefined,
+      expect.objectContaining({
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    );
     expect(remove).toHaveBeenCalledTimes(1);
     expect(navigationRef.getCurrentRoute()?.name).toBe('Home');
     expect(navigationRef.canGoBack()).toBe(false);
     expect(useAuthStore.getState().status).toBe('guest');
+    expect(await secureStorage.getToken()).toBeNull();
     await press('Post');
     expect(navigationRef.getCurrentRoute()?.name).toBe('Login');
   } finally {
-    token.mockRestore();remove.mockRestore();post.mockRestore();
+    remove.mockRestore();
+    post.mockRestore();
   }
 });
 
+test('membership without a secure token is rejected by private reads and clears invalid local state', async () => {
+  await openPhase2GuestHome();
+  await Renderer.act(async () => {
+    useAuthStore.getState().setUser({
+      id: 55,
+      name: 'Missing credential',
+      email: 'missing@example.test',
+    });
+  });
+  await settle();
+  expect(await secureStorage.getToken()).toBeNull();
+  const get = jest.spyOn(apiClient, 'get');
+  await press('Messages');
+  await settle();
+  expect(useAuthStore.getState().status).toBe('guest');
+  expect(useAuthStore.getState().user).toBeNull();
+  expect(navigationRef.getCurrentRoute()?.name).toBe('Home');
+  expect(
+    get.mock.calls.filter(([url]) => url === '/customer/conversations'),
+  ).toEqual([]);
+  await press('Messages');
+  expect(navigationRef.getCurrentRoute()?.name).toBe('Login');
+});
+
 test('guest Profile never requests private backend data even when real Profile API is enabled', async () => {
-  const { apiClient } = require('../src/services/api/apiClient');
+  const originalStatic = appConfig.staticTestingBuild;
+  appConfig.staticTestingBuild = false;
   appConfig.profileApiVerified = true;
   const get = jest.spyOn(apiClient, 'get');
   try {
     await openPhase2GuestHome();
     await press('Profile');
     expect(tree!.root.findAllByType(GuestProfileScreen)).toHaveLength(1);
-    expect(get).not.toHaveBeenCalled();
+    expect(get).toHaveBeenCalledWith(
+      '/categories',
+      expect.objectContaining({ headers: { Authorization: false } }),
+    );
+    expect(
+      get.mock.calls.filter(
+        ([url]) =>
+          url.startsWith('/customer/') || ['/user', '/auth/me'].includes(url),
+      ),
+    ).toEqual([]);
+    expect(useAuthStore.getState().status).toBe('guest');
     await press('Sign In');
     expect(navigationRef.getCurrentRoute()?.name).toBe('Login');
   } finally {
+    appConfig.staticTestingBuild = originalStatic;
     get.mockRestore();
   }
 });

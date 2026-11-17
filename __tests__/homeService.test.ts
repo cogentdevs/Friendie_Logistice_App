@@ -85,31 +85,33 @@ test('route and optional weight/date validation reject invalid search values', (
     }).success,
   ).toBe(false);
 });
-test('country and weight constraints cannot be silently sent to an unverified serializer contract', async () => {
-  const config = {
-    staticMarketplaceEnabled: appConfig.staticMarketplaceEnabled,
-    apiBaseUrl: appConfig.apiBaseUrl,
-    listingsApiVerified: appConfig.listingsApiVerified,
-  };
-  Object.assign(appConfig, {
-    staticMarketplaceEnabled: false,
-    apiBaseUrl: 'https://example.test',
-    listingsApiVerified: true,
-  });
-  const get = jest.spyOn(apiClient, 'get');
+test('verified public country and weight filters use exact documented keys', async () => {
+  const previous = appConfig.staticMarketplaceEnabled;
+  appConfig.staticMarketplaceEnabled = false;
+  const get = jest
+    .spyOn(apiClient, 'get')
+    .mockResolvedValue({
+      status: 200,
+      data: {
+        success: true,
+        data: {
+          items: [],
+          pagination: { current_page: 1, per_page: 20, total: 0, last_page: 1 },
+        },
+      },
+    });
   try {
-    await expect(
-      getListings(1, { weightKg: 5 }, { mode: 'worldwide' }),
-    ).rejects.toThrow('verified backend filter contract');
-    await expect(
-      getListings(
-        1,
-        { destinationCountry: { id: 12, code: 'AE', name: 'UAE' } },
-        { mode: 'worldwide' },
-      ),
-    ).rejects.toThrow('verified backend filter contract');
-    expect(get).not.toHaveBeenCalled();
+    await getListings(
+      1,
+      { weightKg: 5, destinationCountry: { id: 12, code: 'AE', name: 'UAE' } },
+      { mode: 'worldwide' },
+    );
+    expect(get).toHaveBeenCalledWith('/listings', {
+      signal: undefined,
+      headers: { Authorization: false },
+      params: { page: 1, per_page: 20, weight: 5, to_country_id: 12 },
+    });
   } finally {
-    Object.assign(appConfig, config);
+    appConfig.staticMarketplaceEnabled = previous;
   }
 });

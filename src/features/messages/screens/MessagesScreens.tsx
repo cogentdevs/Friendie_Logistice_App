@@ -18,10 +18,19 @@ import {
 } from '../../../store/developmentStore';
 import { demoConversations } from '../development/demoChat';
 import { colors } from '../../../theme';
+import { useAuthStore } from '../../../store/authStore';
+import { useInbox } from '../hooks/useInbox';
+import { inboxErrorMessage } from '../services/inboxService';
+import { LoadingIndicator } from '../../../components/ui/LoadingIndicator';
+import { ErrorState } from '../../../components/ui/ErrorState';
 export function ConversationsScreen({
   navigation,
 }: NativeStackScreenProps<MessagesStackParamList, 'Conversations'>) {
   const active = useDevelopmentStore(state => state.previewActive);
+  const user = useAuthStore(state => state.user);
+  const status = useAuthStore(state => state.status);
+  if (status === 'authenticated' && user)
+    return <RealInbox key={user.id} navigation={navigation} />;
   const tabs = () =>
     navigation.getParent<BottomTabNavigationProp<MainTabParamList>>();
   if (!active || !isUiPreviewActive())
@@ -94,6 +103,95 @@ export function ConversationsScreen({
           variant="secondary"
           onPress={() => tabs()?.navigate('HomeStack', { screen: 'Filters' })}
         />
+      </ScreenContainer>
+    </SafeScreen>
+  );
+}
+function RealInbox({
+  navigation,
+}: Pick<
+  NativeStackScreenProps<MessagesStackParamList, 'Conversations'>,
+  'navigation'
+>) {
+  const { query, items, retry, loadMore } = useInbox();
+  return (
+    <SafeScreen backgroundColor={colors.white}>
+      <ScreenContainer
+        backgroundColor={colors.white}
+        onScroll={event => {
+          const { layoutMeasurement, contentOffset, contentSize } =
+            event.nativeEvent;
+          if (
+            layoutMeasurement.height + contentOffset.y >=
+            contentSize.height - 100
+          )
+            loadMore().catch(() => {});
+        }}
+      >
+        <AppText color={colors.primary} style={styles.label}>
+          Messages
+        </AppText>
+        {query.isPending ? (
+          <LoadingIndicator label="Loading conversations..." />
+        ) : query.isError && !items.length ? (
+          <ErrorState
+            message={inboxErrorMessage(query.error)}
+            onRetry={() => {
+              retry().catch(() => {});
+            }}
+          />
+        ) : !items.length ? (
+          <AppText>No conversations yet.</AppText>
+        ) : null}
+        {items.map(item => {
+          const name =
+            item.other_participant.display_name?.trim() || 'Name unavailable';
+          return (
+            <Pressable
+              key={item.id}
+              cssInterop={false}
+              accessibilityRole="button"
+              accessibilityLabel={
+                'Open chat with ' +
+                name +
+                ', ' +
+                item.unread_count +
+                ' unread messages'
+              }
+              onPress={() =>
+                navigation.navigate('Chat', { conversationId: String(item.id) })
+              }
+              style={styles.card}
+            >
+              <View style={styles.avatar}>
+                <MessageCircle size={24} color={colors.primary} />
+              </View>
+              <View style={styles.text}>
+                <AppText color={colors.navy} style={styles.name}>
+                  {name +
+                    (item.unread_count > 0
+                      ? ' (' + item.unread_count + ' unread)'
+                      : '')}
+                </AppText>
+                <AppText variant="caption">
+                  {item.last_message ?? 'No message preview available.'}
+                </AppText>
+              </View>
+              <ChevronRight size={18} color={colors.secondary} />
+            </Pressable>
+          );
+        })}
+        {query.isFetchingNextPage && (
+          <LoadingIndicator label="Loading more conversations..." />
+        )}
+        {query.isError && items.length > 0 && (
+          <ErrorState
+            message={inboxErrorMessage(query.error)}
+            onRetry={() => {
+              retry().catch(() => {});
+            }}
+          />
+        )}
       </ScreenContainer>
     </SafeScreen>
   );
