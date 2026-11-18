@@ -3,6 +3,7 @@ import {
   launchImageLibrary,
   Asset,
 } from 'react-native-image-picker';
+import { Image } from 'react-native';
 export type AvatarDraft = {
   uri: string;
   type: 'image/jpeg' | 'image/png' | 'image/webp';
@@ -74,5 +75,21 @@ export async function chooseProfilePhoto(
     );
   if (response.errorCode || !response.assets?.[0])
     throw new Error('Could not select a photo. Please try again.');
-  return validateAvatar(response.assets[0]);
+  const selected = validateAvatar(response.assets[0]);
+  // Decode through RN's image loader; retain content:// URIs unchanged.
+  const dimensions = await new Promise<{ width: number; height: number }>(
+    (resolve, reject) => {
+      Image.getSize(
+        selected.uri,
+        (width, height) => resolve({ width, height }),
+        () =>
+          reject(
+            new Error(
+              'The selected image could not be opened. Please choose another photo.',
+            ),
+          ),
+      );
+    },
+  );
+  return validateAvatar({ ...selected, ...dimensions });
 }

@@ -5,6 +5,38 @@ import { secureStorage } from '../../../services/storage/secureStorage';
 import { useAuthStore } from '../../../store/authStore';
 import { ApiError } from '../../../types/api';
 import { AvatarDraft, validateAvatar } from './profilePhotoService';
+import { getProfile, Profile } from './profileService';
+
+type Upload = {
+  avatar: AvatarDraft;
+  phase: 'pending' | 'unknown' | 'confirmed';
+  url?: string;
+  observed?: Profile;
+  previousUrl?: string | null;
+  comparison?: 'unchanged' | 'changed' | 'unavailable';
+};
+// Mutation recovery only; authoritative profile data stays in the existing query cache.
+let operation: Upload | undefined;
+useAuthStore.subscribe((state, previous) => {
+  if (state.user !== previous.user || state.status !== previous.status)
+    operation = undefined;
+});
+export class AvatarUploadUncertainError extends ApiError {
+  constructor(public observedProfile?: Profile, status?: number) {
+    super(
+      'Profile photo upload status could not be confirmed. Your selection is kept. Upload is blocked to avoid repeating an uncertain request.',
+      'unknown',
+      status,
+    );
+  }
+}
+export function avatarUploadRecovery() {
+  return operation;
+}
+export function completeAvatarUpload(avatar?: AvatarDraft) {
+  if (operation?.phase === 'confirmed' && operation.avatar === avatar)
+    operation = undefined;
+}
 
 const responseSchema = z.object({
   success: z.literal(true),
@@ -16,6 +48,7 @@ const responseSchema = z.object({
 export async function uploadProfileAvatar(
   avatar: AvatarDraft,
   signal?: AbortSignal,
+  previousUrl?: string | null,
 ): Promise<string> {
   const session = useAuthStore.getState();
   if (session.status !== 'authenticated' || !session.user)
@@ -31,6 +64,13 @@ export async function uploadProfileAvatar(
     if (!current() || signal?.aborted)
       throw new ApiError('Photo upload cancelled.', 'cancelled');
   };
+  check();
+  if (operation?.phase === 'pending')
+    throw new ApiError('A photo upload is already in progress.', 'cancelled');
+  if (operation?.phase === 'unknown')
+    throw new AvatarUploadUncertainError(operation.observed);
+  if (operation?.phase === 'confirmed' && operation.avatar === avatar)
+    return operation.url!;
   let image: AvatarDraft;
   try {
     image = validateAvatar(avatar);
@@ -40,50 +80,88 @@ export async function uploadProfileAvatar(
       'validation',
     );
   }
-  const token = await secureStorage.getToken();
-  check();
-  if (!token || !/^\S+$/.test(token))
-    throw new ApiError('Please sign in again.', 'unauthorized', 401);
-  const extension =
-    image.type === 'image/png'
-      ? 'png'
-      : image.type === 'image/webp'
-      ? 'webp'
-      : 'jpg';
-  const validName =
-    image.fileName &&
-    /^[\w.-]+\.(jpe?g|png|webp)$/i.test(image.fileName) &&
-    (extension === 'jpg'
-      ? /\.jpe?g$/i
-      : new RegExp(`\\.${extension}$`, 'i')
-    ).test(image.fileName);
-  const body = new FormData();
-  body.append('avatar', {
-    uri: image.uri,
-    name: validName ? image.fileName! : `avatar.${extension}`,
-    type: image.type,
-  });
-  const response = await apiClient.post<unknown>(
-    endpoints.profileAvatar,
-    body,
-    {
-      signal,
-      // Override the client's JSON default. Axios' RN adapter supplies the native boundary.
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'multipart/form-data',
+  const attempt: Upload = { avatar, phase: 'pending', previousUrl };
+  operation = attempt;
+  let dispatched = false;
+  try {
+    const token = await secureStorage.getToken();
+    check();
+    if (!token || !/^\S+$/.test(token))
+      throw new ApiError('Please sign in again.', 'unauthorized', 401);
+    const extension =
+      image.type === 'image/png'
+        ? 'png'
+        : image.type === 'image/webp'
+        ? 'webp'
+        : 'jpg';
+    const validName =
+      image.fileName &&
+      /^[\w.-]+\.(jpe?g|png|webp)$/i.test(image.fileName) &&
+      (extension === 'jpg'
+        ? /\.jpe?g$/i
+        : new RegExp(`\\.${extension}$`, 'i')
+      ).test(image.fileName);
+    const body = new FormData();
+    body.append('avatar', {
+      uri: image.uri,
+      name: validName ? image.fileName! : `avatar.${extension}`,
+      type: image.type,
+    });
+    dispatched = true;
+    const response = await apiClient.post<unknown>(
+      endpoints.profileAvatar,
+      body,
+      {
+        signal,
+        // Override the client's JSON default. Axios' RN adapter supplies the native boundary.
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
+        },
       },
-    },
-  );
-  check();
-  if ((await secureStorage.getToken()) !== token)
-    throw new ApiError('Session changed.', 'cancelled');
-  check();
-  const parsed = responseSchema.safeParse(response.data);
-  if (response.status !== 200 || !parsed.success)
-    throw new ApiError(
-      'The server did not return a usable saved photo URL. Refresh your profile before retrying.',
-      'unknown',
     );
-  return parsed.data.data.image_url;
+    check();
+    if ((await secureStorage.getToken()) !== token)
+      throw new ApiError('Session changed.', 'cancelled');
+    check();
+    const parsed = responseSchema.safeParse(response.data);
+    if (response.status !== 200 || !parsed.success)
+      throw new ApiError(
+        'The server did not return a usable saved photo URL. Refresh your profile before retrying.',
+        'unknown',
+      );
+    attempt.phase = 'confirmed';
+    attempt.url = parsed.data.data.image_url;
+    return attempt.url;
+  } catch (error) {
+    const definite =
+      error instanceof ApiError &&
+      [400, 401, 403, 404, 409, 413, 415, 422, 429].includes(error.status ?? 0);
+    if (!dispatched || definite) {
+      if (operation === attempt) operation = undefined;
+      throw error;
+    }
+    attempt.phase = 'unknown';
+    if (current() && !signal?.aborted) {
+      // A changed URL alone cannot identify this request's bytes: another device
+      // may also replace the avatar. Refresh for visibility, never infer delivery.
+      try {
+        attempt.observed = await getProfile(signal);
+        attempt.comparison =
+          previousUrl === undefined || attempt.observed.avatarUrl === undefined
+            ? 'unavailable'
+            : attempt.observed.avatarUrl === previousUrl
+            ? 'unchanged'
+            : 'changed';
+      } catch {
+        /* keep the hold */
+      }
+    }
+    if (!current() || signal?.aborted)
+      throw new ApiError('Photo upload cancelled.', 'cancelled');
+    throw new AvatarUploadUncertainError(
+      attempt.observed,
+      error instanceof ApiError ? error.status : undefined,
+    );
+  }
 }

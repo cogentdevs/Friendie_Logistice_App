@@ -10,6 +10,11 @@ import { useListingDraft } from '../../post-listing/store/listingDraftStore';
 import { clearPendingNotification } from '../../../navigation/navigationRef';
 import { secureStorage } from '../../../services/storage/secureStorage';
 import { ApiError } from '../../../types/api';
+import { isPublicHomeQuery } from '../../../services/api/publicHomeCache';
+function clearSessionQueries(client: QueryClient) {
+  client.removeQueries({ predicate: query => !isPublicHomeQuery(query) });
+  client.getMutationCache().clear();
+}
 // Used only after a server operation explicitly confirms token revocation.
 export async function clearRevokedSession(
   token: string,
@@ -28,7 +33,7 @@ export async function clearRevokedSession(
 export function clearPrivateAccountMemory(client: QueryClient) {
   clearPendingNotification();
   client.cancelQueries().catch(() => {});
-  client.clear();
+  clearSessionQueries(client);
   useListingBookmarks.setState({ ids: [], owner: undefined });
   useMyListingsTabs.getState().clear();
   useChatDrafts.getState().clear();
@@ -52,7 +57,7 @@ export function logoutSession(client: QueryClient) {
     const results = await Promise.allSettled([
       useListingBookmarks.getState().clearLocal(owner),
     ]);
-    client.clear();
+    clearSessionQueries(client);
     useDevelopmentStore.setState({
       previewActive: false,
       authEntryRequested: false,

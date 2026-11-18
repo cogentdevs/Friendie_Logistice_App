@@ -114,3 +114,16 @@ export function hasVerifiedListingReferences(draft: ListingDraft) {
     )
   );
 }
+
+// Public filters reuse the same authoritative reference reads and relationship checks.
+export function isVerifiedFilterRoute(
+  country: ListingReference,
+  city?: ListingReference,
+) {
+  return (
+    verified.countries.has(country.id) &&
+    (!city ||
+      (city.countryId === country.id &&
+        verified.cities.get(city.id) === country.id))
+  );
+}

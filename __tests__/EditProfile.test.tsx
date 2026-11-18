@@ -68,6 +68,10 @@ beforeEach(() => {
   });
   useAuthStore.getState().setUser(person);
   jest.spyOn(profiles, 'getProfile').mockResolvedValue(person);
+  jest.spyOn(Image, 'getSize').mockImplementation((_uri, success) => {
+    success?.(512, 512);
+    return Promise.resolve({ width: 512, height: 512 });
+  });
 });
 afterEach(async () => {
   await Renderer.act(async () => {
@@ -348,7 +352,7 @@ test('real picker metadata with a content WebP URI previews immediately, retries
     person.avatarUrl,
   );
 });
-test('failed upload preserves local preview; successful retry caches only the backend URL', async () => {
+test('definite rejected upload preserves local preview; explicit retry caches only the backend URL', async () => {
   const selected = {
     uri: 'content://photos/upload',
     type: 'image/png',
@@ -363,7 +367,7 @@ test('failed upload preserves local preview; successful retry caches only the ba
   jest.mocked(launchImageLibrary).mockResolvedValue({ assets: [selected] });
   const post = jest
     .spyOn(apiClient, 'post')
-    .mockRejectedValueOnce(new ApiError('unreachable', 'network'))
+    .mockRejectedValueOnce(new ApiError('Invalid avatar', 'validation', 422))
     .mockResolvedValue({
       status: 200,
       data: {
@@ -398,4 +402,230 @@ test('failed upload preserves local preview; successful retry caches only the ba
   expect(notification).toHaveBeenLastCalledWith(
     expect.objectContaining({ type: 'success' }),
   );
+});
+
+test('uncertain upload preserves preview, warns once and blocks another POST across an editor remount', async () => {
+  const selected = {
+    uri: 'content://photos/uncertain',
+    type: 'image/png' as const,
+    fileSize: 200,
+  };
+  jest.spyOn(photos, 'chooseProfilePhoto').mockResolvedValue(selected);
+  jest.spyOn(secureStorage, 'getToken').mockResolvedValue('dummy-avatar-token');
+  const post = jest
+    .spyOn(apiClient, 'post')
+    .mockRejectedValue(new ApiError('timeout', 'network'));
+  const toast = jest.spyOn(Toast, 'show');
+  await mount();
+  await selectGallery();
+  await press('Save Changes');
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(button('Save Changes').props.disabled).toBe(true);
+  expect(toast).toHaveBeenCalledTimes(1);
+  expect(toast).toHaveBeenLastCalledWith(
+    expect.objectContaining({ type: 'warning' }),
+  );
+  expect(nav.popTo).not.toHaveBeenCalled();
+  expect(
+    tree.root
+      .findAllByType(Image)
+      .some(node => node.props.source?.uri === selected.uri),
+  ).toBe(true);
+  await Renderer.act(async () => {
+    tree.unmount();
+    client.clear();
+  });
+  await mount();
+  expect(
+    tree.root
+      .findAllByType(Image)
+      .some(node => node.props.source?.uri === selected.uri),
+  ).toBe(true);
+  expect(button('Save Changes').props.disabled).toBe(true);
+  await press('Save Changes');
+  expect(post).toHaveBeenCalledTimes(1);
+});
+test('picker completion after logout cannot set preview or notify another account', async () => {
+  let resolve!: (value: photos.AvatarDraft) => void;
+  jest.spyOn(photos, 'chooseProfilePhoto').mockImplementation(
+    () =>
+      new Promise(done => {
+        resolve = done;
+      }),
+  );
+  const toast = jest.spyOn(Toast, 'show');
+  await mount();
+  await selectGallery();
+  await Renderer.act(async () => {
+    useAuthStore.getState().clear();
+    resolve({ uri: 'file:///old-account.png', type: 'image/png' });
+  });
+  await settle();
+  expect(
+    tree.root
+      .findAllByType(Image)
+      .some(node => node.props.source?.uri === 'file:///old-account.png'),
+  ).toBe(false);
+  expect(toast).not.toHaveBeenCalled();
+});
+test('picker completion after unmount cannot notify or save', async () => {
+  let reject!: (error: Error) => void;
+  jest.spyOn(photos, 'chooseProfilePhoto').mockImplementation(
+    () =>
+      new Promise((_resolve, fail) => {
+        reject = fail;
+      }),
+  );
+  const toast = jest.spyOn(Toast, 'show');
+  const save = jest.spyOn(profileEditService, 'save');
+  await mount();
+  await selectGallery();
+  await Renderer.act(async () => {
+    tree.unmount();
+  });
+  await Renderer.act(async () => {
+    reject(new Error('private picker path'));
+  });
+  expect(toast).not.toHaveBeenCalled();
+  expect(save).not.toHaveBeenCalled();
+});
+test('an old image error cannot hide or report a failure for a newer preview', async () => {
+  const choose = jest
+    .spyOn(photos, 'chooseProfilePhoto')
+    .mockResolvedValueOnce({ uri: 'file:///first.png', type: 'image/png' })
+    .mockResolvedValueOnce({ uri: 'file:///second.png', type: 'image/png' });
+  const toast = jest.spyOn(Toast, 'show');
+  await mount();
+  await selectGallery();
+  const oldError = tree.root
+    .findAllByType(Image)
+    .find(node => node.props.source?.uri === 'file:///first.png')!.props
+    .onError;
+  await selectGallery();
+  await Renderer.act(async () => {
+    oldError();
+    oldError();
+  });
+  expect(choose).toHaveBeenCalledTimes(2);
+  expect(
+    tree.root
+      .findAllByType(Image)
+      .some(node => node.props.source?.uri === 'file:///second.png'),
+  ).toBe(true);
+  expect(toast).not.toHaveBeenCalled();
+});
+test('unreadable selected preview cannot be uploaded and repeated image errors notify only once', async () => {
+  jest
+    .spyOn(photos, 'chooseProfilePhoto')
+    .mockResolvedValue({ uri: 'file:///broken.png', type: 'image/png' });
+  const save = jest.spyOn(profileEditService, 'save');
+  const toast = jest.spyOn(Toast, 'show');
+  await mount();
+  await selectGallery();
+  const onError = tree.root
+    .findAllByType(Image)
+    .find(node => node.props.source?.uri === 'file:///broken.png')!.props
+    .onError;
+  await Renderer.act(async () => {
+    onError();
+    onError();
+  });
+  expect(toast).toHaveBeenCalledTimes(1);
+  await press('Save Changes');
+  expect(save).not.toHaveBeenCalled();
+});
+test('confirmed upload with failed profile refresh retries read only and retains the photo draft', async () => {
+  const selected = {
+    uri: 'content://photos/confirmed',
+    type: 'image/png' as const,
+    fileSize: 200,
+  };
+  jest.spyOn(photos, 'chooseProfilePhoto').mockResolvedValue(selected);
+  jest.spyOn(secureStorage, 'getToken').mockResolvedValue('dummy-avatar-token');
+  const url = 'https://example.test/confirmed.jpg';
+  const post = jest.spyOn(apiClient, 'post').mockResolvedValue({
+    status: 200,
+    data: {
+      success: true,
+      message: 'Avatar updated successfully.',
+      data: { image_url: url },
+    },
+  });
+  await mount();
+  await selectGallery();
+  jest
+    .mocked(profiles.getProfile)
+    .mockRejectedValueOnce(new ApiError('offline', 'network'));
+  await press('Save Changes');
+  expect(client.getQueryData<profiles.Profile>(['profile', 8])?.avatarUrl).toBe(
+    url,
+  );
+  expect(nav.popTo).not.toHaveBeenCalled();
+  expect(
+    tree.root
+      .findAllByType(Image)
+      .some(node => node.props.source?.uri === selected.uri),
+  ).toBe(true);
+  jest
+    .mocked(profiles.getProfile)
+    .mockResolvedValue({ ...person, avatarUrl: url });
+  await press('Save Changes');
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(nav.popTo).toHaveBeenCalledWith('Profile');
+});
+test('two rapid Save taps submit a selected photo only once', async () => {
+  let resolve!: (
+    value: Awaited<ReturnType<typeof profileEditService.save>>,
+  ) => void;
+  const save = jest.spyOn(profileEditService, 'save').mockImplementation(
+    () =>
+      new Promise(done => {
+        resolve = done;
+      }),
+  );
+  jest
+    .spyOn(photos, 'chooseProfilePhoto')
+    .mockResolvedValue({ uri: 'file:///new.png', type: 'image/png' });
+  await mount();
+  await selectGallery();
+  await Renderer.act(async () => {
+    button('Save Changes').props.onPress();
+    button('Save Changes').props.onPress();
+  });
+  expect(save).toHaveBeenCalledTimes(1);
+  await Renderer.act(async () => {
+    resolve({
+      profile: { ...person, avatarUrl: 'https://example.test/saved.jpg' },
+      reauthenticationRequired: false,
+      verificationRequired: false,
+    });
+  });
+});
+
+test('account replacement while canceling older profile reads cannot publish a photo or notify the new account', async () => {
+  const toast = jest.spyOn(Toast, 'show');
+  jest
+    .spyOn(photos, 'chooseProfilePhoto')
+    .mockResolvedValue({ uri: 'file:///old.png', type: 'image/png' });
+  jest.spyOn(profileEditService, 'save').mockResolvedValue({
+    profile: { ...person, avatarUrl: 'https://example.test/new.jpg' },
+    reauthenticationRequired: false,
+    verificationRequired: false,
+  });
+  await mount();
+  await selectGallery();
+  jest
+    .mocked(profiles.getProfile)
+    .mockRejectedValue(new ApiError('Session changed.', 'cancelled'));
+  jest.spyOn(client, 'cancelQueries').mockImplementation(async () => {
+    useAuthStore
+      .getState()
+      .setUser({ id: 99, name: 'Other', email: 'other@example.test' });
+  });
+  const publish = jest.spyOn(client, 'setQueryData');
+  await press('Save Changes');
+  expect(publish).not.toHaveBeenCalled();
+  expect(client.getQueryData(['profile', 99])).toBeUndefined();
+  expect(nav.popTo).not.toHaveBeenCalled();
+  expect(toast).not.toHaveBeenCalled();
 });

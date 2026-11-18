@@ -13,6 +13,7 @@ import Renderer, { ReactTestRenderer } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { HomeScreen } from '../src/features/home/screens/HomeScreen';
 import { homeService } from '../src/features/home/services/homeService';
+import * as homeApi from '../src/features/home/services/homeApiService';
 import { HomeCollectionPicker } from '../src/features/home/components/HomeSections';
 import { RouteLocationPicker } from '../src/features/location/components/RouteLocationPicker';
 import { SearchDatePicker } from '../src/features/search/components/SearchDatePicker';
@@ -387,18 +388,18 @@ test.each(['guest', 'authenticated'])(
     expect(useAuthStore.getState()).toBe(identity);
   },
 );
-test('disabled unrelated fixtures retain their build state while Categories exposes API retry', async () => {
+test('live Home request failure preserves section feedback without fixture fallback', async () => {
   appConfig.staticMarketplaceEnabled = false;
   jest
-    .spyOn(homeService, 'categories')
+    .spyOn(homeApi, 'getHome')
     .mockRejectedValue(new ApiError('Unavailable', 'network'));
   await mount();
-  expect(present('Static marketplace content is disabled in this build.')).toBe(
+  expect(present('Popular locations are not provided by the Home API.')).toBe(
     true,
   );
   expect(button('Retry Categories')).toBeDefined();
   expect(button('Retry Destinations')).toBeUndefined();
-  expect(button('Retry Latest ads')).toBeUndefined();
+  expect(button('Retry Latest ads')).toBeDefined();
 });
 
 test.each(['guest', 'authenticated'])(

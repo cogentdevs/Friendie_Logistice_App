@@ -47,7 +47,8 @@ import { LocationSelection } from '../../location/types/location';
 import { getListings } from '../../listings/services/listingsService';
 import { ApiError } from '../../../types/api';
 import { colors, radius, spacing } from '../../../theme';
-import { useSearchStore } from '../store/searchStore';
+import { SearchFilters, useSearchStore } from '../store/searchStore';
+import { publicSearchParams } from '../../listings/services/publicListingsService';
 import { useRecentSearchStore } from '../store/recentSearchStore';
 import {
   DateRange,
@@ -78,39 +79,41 @@ export function SearchScreen({ navigation }: Props) {
     [historyError, setHistoryError] = useState('');
   const [historyBusy, setHistoryBusy] = useState(false);
   const submitting = useRef(false);
+  const requestEpoch = useRef(0);
+  const active = useRef(focused);
+  active.current = focused;
+  useEffect(
+    () => () => {
+      active.current = false;
+      requestEpoch.current++;
+    },
+    [],
+  );
+  useEffect(() => {
+    if (!focused) requestEpoch.current++;
+  }, [focused]);
   const [submittingBusy, setSubmittingBusy] = useState(false);
   const lastApplied = useRef(initial);
   const history = useRecentSearchStore(state => state.items),
     ready = useRecentSearchStore(state => state.ready);
   const search = useMutation({
     mutationFn: ({
-      snapshot,
+      filters,
       location,
     }: {
-      snapshot: RouteSearch;
+      filters: SearchFilters;
       location: LocationSelection;
     }) =>
       client.fetchQuery({
-        queryKey: ['searchListings', snapshot, location],
+        queryKey: [
+          'searchListings',
+          filters,
+          location,
+          isListingDemoMode() ? 'demo' : 'api',
+        ],
         retry: false,
         staleTime: 0,
-        queryFn: ({ signal }) =>
-          getListings(
-            1,
-            {
-              query: snapshot.query,
-              category: snapshot.category,
-              verifiedOnly: snapshot.verifiedOnly,
-              availableNow: snapshot.availableNow,
-              radiusTarget: snapshot.radiusTarget,
-              type: snapshot.type,
-              from: snapshot.from,
-              to: snapshot.to,
-              dates: snapshot.dates,
-            },
-            location,
-            signal,
-          ),
+        queryFn: ({ signal }) => getListings(1, filters, location, signal),
       }),
   });
   const openFilters = useCallback(() => {
@@ -207,11 +210,14 @@ export function SearchScreen({ navigation }: Props) {
     if (submitting.current) return;
     Keyboard.dismiss();
     clearFeedback();
-    if (!from || !to) {
+    const referenceOnly =
+      !isListingDemoMode() &&
+      Boolean(initial.routeReferences?.from || initial.routeReferences?.to);
+    if ((!from || !to) && !referenceOnly) {
       setError('Select both From and To locations.');
       return;
     }
-    if (sameLocation(from, to)) {
+    if (from && to && sameLocation(from, to)) {
       setError('Choose different From and To locations.');
       return;
     }
@@ -230,14 +236,48 @@ export function SearchScreen({ navigation }: Props) {
       availableNow: initial.availableNow,
       radiusTarget: initial.radiusTarget,
     });
-    if (!parsed.success) {
+    if (!parsed.success && !referenceOnly) {
       setError('Check your route and date range.');
       return;
     }
     submitting.current = true;
     setSubmittingBusy(true);
-    const snapshot = parsed.data;
+    const snapshot = parsed.success
+      ? parsed.data
+      : {
+          type,
+          from,
+          to,
+          dates,
+          query: initial.query?.trim() || undefined,
+          category: initial.category,
+          verifiedOnly: initial.verifiedOnly,
+          availableNow: initial.availableNow,
+          radiusTarget: initial.radiusTarget,
+        };
     const location = useLocationStore.getState().selection;
+    const demo = isListingDemoMode();
+    const candidate = {
+      ...useSearchStore.getState().filters,
+      ...snapshot,
+      origin: undefined,
+      destination: undefined,
+    };
+    if (!demo) {
+      try {
+        publicSearchParams(1, candidate, location);
+      } catch (failure) {
+        setError(
+          failure instanceof ApiError
+            ? failure.message
+            : 'Check your search filters.',
+        );
+        submitting.current = false;
+        setSubmittingBusy(false);
+        return;
+      }
+    }
+    const epoch = ++requestEpoch.current;
     useSearchStore.getState().setFilters({
       type,
       from: snapshot.from,
@@ -249,19 +289,31 @@ export function SearchScreen({ navigation }: Props) {
       destination: undefined,
     });
     const submittedFilters = useSearchStore.getState().filters;
+    const current = () =>
+      active.current &&
+      requestEpoch.current === epoch &&
+      useSearchStore.getState().filters === submittedFilters &&
+      useLocationStore.getState().selection === location &&
+      isListingDemoMode() === demo;
     try {
-      await useRecentSearchStore.getState().add(snapshot);
-      setHistoryError('');
+      // The existing history format requires complete legacy route labels/codes.
+      // Country-only reference searches are valid but must not invent that metadata.
+      if (parsed.success)
+        await useRecentSearchStore.getState().add(parsed.data);
+      if (current()) setHistoryError('');
     } catch {
-      setHistoryError(
-        'Could not save this recent search. Device storage may be unavailable.',
-      );
+      if (current())
+        setHistoryError(
+          'Could not save this recent search. Device storage may be unavailable.',
+        );
     }
     try {
+      if (!current()) return;
       const firstPage = await search.mutateAsync({
-        snapshot,
+        filters: submittedFilters,
         location,
       });
+      if (!current()) return;
       client.setQueryData(
         isListingDemoMode()
           ? ['listings', submittedFilters, location, 'demo']
@@ -273,15 +325,16 @@ export function SearchScreen({ navigation }: Props) {
       );
       navigation.navigate('Results');
     } catch (failure) {
+      if (!current()) return;
       setError(
         failure instanceof ApiError
           ? failure.message
           : 'Unable to search listings. Check your connection and try again.',
       );
-      navigation.navigate('Results');
+      if (demo) navigation.navigate('Results');
     } finally {
       submitting.current = false;
-      setSubmittingBusy(false);
+      if (active.current) setSubmittingBusy(false);
     }
   };
   const busy = submittingBusy || search.isPending;

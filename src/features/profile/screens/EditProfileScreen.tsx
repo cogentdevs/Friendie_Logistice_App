@@ -58,6 +58,11 @@ import {
   chooseProfilePhoto,
   PhotoPermissionError,
 } from '../services/profilePhotoService';
+import {
+  avatarUploadRecovery,
+  completeAvatarUpload,
+  AvatarUploadUncertainError,
+} from '../services/profileAvatarService';
 type Props = NativeStackScreenProps<ProfileStackParamList, 'EditProfile'>;
 export function EditProfileScreen({ navigation }: Props) {
   const { query, demo } = useProfile();
@@ -142,12 +147,20 @@ function ProfileEditor({
   const profile = useRef(incoming).current;
   const focused = useIsFocused(),
     client = useQueryClient();
-  const [photo, setPhoto] = useState<AvatarDraft>();
+  const [photo, setPhoto] = useState<AvatarDraft | undefined>(() =>
+    demo ? undefined : avatarUploadRecovery()?.avatar,
+  );
   const [removePhoto, setRemovePhoto] = useState(false);
-  const [photoError, setPhotoError] = useState('');
+  const [photoError, setPhotoError] = useState(() =>
+    !demo && avatarUploadRecovery()?.phase === 'unknown'
+      ? new AvatarUploadUncertainError().message
+      : '',
+  );
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [picking, setPicking] = useState(false);
   const [failedUri, setFailedUri] = useState<string>();
+  const failedPreview = useRef<string | undefined>(undefined);
+  const previewUri = useRef<string | undefined>(undefined);
   const [saved, setSaved] = useState(false);
   const [focusedField, setFocusedField] = useState('');
   const submission = useRef(false),
@@ -175,9 +188,28 @@ function ProfileEditor({
     'callingCountry',
   ]);
   const request = useRef<AbortController | null>(null);
+  const editorSession = useRef(useAuthStore.getState()).current;
+  const lifecycle = useRef({ active: false, generation: 0 });
+  const currentEditor = () =>
+    lifecycle.current.active &&
+    (demo
+      ? isUiPreviewActive() &&
+        useAuthStore.getState().status !== 'authenticated'
+      : useAuthStore.getState().status === 'authenticated' &&
+        useAuthStore.getState().user === editorSession.user);
+  React.useLayoutEffect(() => {
+    const life = lifecycle.current;
+    life.active = focused;
+    life.generation++;
+    return () => {
+      life.active = false;
+      life.generation++;
+    };
+  }, [focused]);
   React.useEffect(() => () => request.current?.abort(), []);
   React.useEffect(() => {
     if (!focused) request.current?.abort();
+    else if (!choosing.current) setPicking(false);
   }, [focused]);
   const mutation = useMutation({
     mutationFn: (values: EditProfileValues) =>
@@ -239,19 +271,25 @@ function ProfileEditor({
     navigation.popTo('Profile');
   };
   const choose = async (source: 'camera' | 'gallery') => {
-    if (choosing.current || submission.current) return;
+    if (choosing.current || submission.current || !currentEditor()) return;
+    const generation = lifecycle.current.generation;
     choosing.current = true;
     setPicking(true);
     setPhotoError('');
     setPermissionDenied(false);
     try {
       const result = await chooseProfilePhoto(source);
+      if (!currentEditor() || generation !== lifecycle.current.generation)
+        return;
       if (result) {
         setPhoto(result);
         setRemovePhoto(false);
         setFailedUri(undefined);
+        failedPreview.current = undefined;
       }
     } catch (error) {
+      if (!currentEditor() || generation !== lifecycle.current.generation)
+        return;
       setPermissionDenied(error instanceof PhotoPermissionError);
       const message =
         error instanceof Error
@@ -261,7 +299,7 @@ function ProfileEditor({
       Toast.show({ type: 'error', text1: 'Photo unavailable', text2: message });
     } finally {
       choosing.current = false;
-      setPicking(false);
+      if (currentEditor()) setPicking(false);
     }
   };
   const changePhoto = () => {
@@ -288,7 +326,15 @@ function ProfileEditor({
   };
   const save = form.handleSubmit(
     async values => {
-      if (submission.current || choosing.current) return;
+      if (submission.current || choosing.current || !currentEditor()) return;
+      if (photo && failedUri === photo.uri) {
+        Toast.show({
+          type: 'error',
+          text1: 'Photo unavailable',
+          text2: 'Choose a photo that can be opened before saving.',
+        });
+        return;
+      }
       submission.current = true;
       request.current = new AbortController();
       Keyboard.dismiss();
@@ -296,6 +342,8 @@ function ProfileEditor({
       const session = useAuthStore.getState().user;
       try {
         const result = await mutation.mutateAsync(values);
+        if (!lifecycle.current.active || request.current?.signal.aborted)
+          return;
         const updated = profileSchema.parse(result.profile);
         if (result.reauthenticationRequired) {
           if (useAuthStore.getState().status === 'authenticated')
@@ -320,8 +368,9 @@ function ProfileEditor({
           queryKey: ['profile', profile.id],
           exact: true,
         });
-        if (useAuthStore.getState().user !== session) return;
+        if (!currentEditor() || request.current?.signal.aborted) return;
         client.setQueryData(['profile', profile.id], updated);
+        completeAvatarUpload(photo);
         form.reset(values);
         setPhoto(undefined);
         setRemovePhoto(false);
@@ -332,10 +381,28 @@ function ProfileEditor({
           text2: 'Your profile was updated successfully.',
         });
       } catch (error) {
+        if (!lifecycle.current.active || request.current?.signal.aborted)
+          return;
         if (error instanceof ApiError && error.kind === 'cancelled') return;
         if (
+          error instanceof AvatarUploadUncertainError &&
+          error.observedProfile?.id === profile.id &&
+          currentEditor()
+        ) {
+          await client.cancelQueries({
+            queryKey: ['profile', profile.id],
+            exact: true,
+          });
+          if (!currentEditor() || request.current?.signal.aborted) return;
+          client.setQueryData(['profile', profile.id], error.observedProfile);
+        }
+        if (
           useAuthStore.getState().user !== session &&
-          !(error instanceof ApiError && error.kind === 'unauthorized')
+          !(
+            error instanceof ApiError &&
+            error.kind === 'unauthorized' &&
+            useAuthStore.getState().status !== 'authenticated'
+          )
         )
           return;
         if (
@@ -346,11 +413,11 @@ function ProfileEditor({
             queryKey: ['profile', profile.id],
             exact: true,
           });
-          if (useAuthStore.getState().user === session)
-            client.setQueryData<Profile>(['profile', profile.id], cached => ({
-              ...(cached ?? profile),
-              avatarUrl: error.avatarUrl,
-            }));
+          if (!currentEditor() || request.current?.signal.aborted) return;
+          client.setQueryData<Profile>(['profile', profile.id], cached => ({
+            ...(cached ?? profile),
+            avatarUrl: error.avatarUrl,
+          }));
         }
         if (error instanceof ApiError && error.kind === 'validation') {
           const mapping = {
@@ -373,8 +440,12 @@ function ProfileEditor({
           }
         }
         Toast.show({
-          type: 'error',
-          text1: 'Profile update failed',
+          type:
+            error instanceof AvatarUploadUncertainError ? 'warning' : 'error',
+          text1:
+            error instanceof AvatarUploadUncertainError
+              ? 'Photo upload unconfirmed'
+              : 'Profile update failed',
           text2: profileUpdateErrorMessage(error),
         });
       } finally {
@@ -396,6 +467,8 @@ function ProfileEditor({
   }, [saved, navigation]);
   const uri =
     photo?.uri ?? (removePhoto ? undefined : profile.avatarUrl ?? undefined);
+  previewUri.current = uri;
+  const uploadHeld = !demo && avatarUploadRecovery()?.phase === 'unknown';
   const fields = [
     { key: 'name', label: 'Full Name', icon: UserRound },
     { key: 'email', label: 'Email Address', icon: Mail },
@@ -410,7 +483,7 @@ function ProfileEditor({
             cssInterop={false}
             accessibilityRole="button"
             accessibilityLabel="Change profile avatar"
-            disabled={busy}
+            disabled={busy || uploadHeld}
             onPress={changePhoto}
             style={styles.avatarRing}
           >
@@ -420,6 +493,13 @@ function ProfileEditor({
                 source={{ uri }}
                 style={styles.avatar}
                 onError={() => {
+                  if (
+                    !currentEditor() ||
+                    previewUri.current !== uri ||
+                    failedPreview.current === uri
+                  )
+                    return;
+                  failedPreview.current = uri;
                   setFailedUri(uri);
                   if (photo?.uri === uri) {
                     const message =
@@ -444,7 +524,7 @@ function ProfileEditor({
             cssInterop={false}
             accessibilityRole="button"
             accessibilityLabel="Upload New Photo"
-            disabled={busy}
+            disabled={busy || uploadHeld}
             onPress={changePhoto}
             style={styles.photoAction}
           >
@@ -671,7 +751,7 @@ function ProfileEditor({
           <GradientButton
             title="Save Changes"
             icon="none"
-            disabled={!dirty || busy || saved}
+            disabled={!dirty || busy || saved || (!!photo && uploadHeld)}
             loading={form.formState.isSubmitting || mutation.isPending}
             onPress={() => {
               save().catch(() => {});

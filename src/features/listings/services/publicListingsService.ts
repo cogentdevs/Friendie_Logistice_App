@@ -4,6 +4,8 @@ import { endpoints } from '../../../services/api/endpoints';
 import { ApiError } from '../../../types/api';
 import type { SearchFilters } from '../../search/store/searchStore';
 import type { LocationSelection } from '../../location/types/location';
+import { validDate } from '../../search/types/search';
+import { isVerifiedFilterRoute } from '../../post-listing/services/listingReferencesService';
 
 const id = z.number().int().positive().max(2147483647);
 const place = z.object({
@@ -53,7 +55,7 @@ type Row = z.infer<typeof publicListingSchema>;
 const label = (value: z.infer<typeof place>) =>
   [value.city, value.country].filter(Boolean).join(', ') ||
   'Location unavailable';
-function normalize(row: Row) {
+export function normalizePublicListing(row: Row) {
   return {
     id: row.id,
     type: row.ad_type === 'Carring' ? ('carry' as const) : ('send' as const),
@@ -104,16 +106,30 @@ export function publicSearchParams(
   )
     unsupported();
   if (filters.dates && filters.dates.start !== filters.dates.end) unsupported();
+  if ('currency' in filters || 'sort' in filters) unsupported();
   const params: Record<string, string | number> = { page, per_page: 20 };
   const identity = (key: string, value: unknown) => {
-    if (value === undefined) return;
-    const parsed = id.safeParse(Number(value));
+    if (value === undefined || value === '') return;
+    const parsed = id.safeParse(
+      typeof value === 'number' ||
+        (typeof value === 'string' && /^[1-9]\d*$/.test(value))
+        ? Number(value)
+        : NaN,
+    );
     if (!parsed.success) unsupported();
     params[key] = Number(value);
   };
   identity('category_id', filters.category);
   identity('to_country_id', filters.destinationCountry?.id);
   for (const side of ['from', 'to'] as const) {
+    const reference = filters.routeReferences?.[side];
+    if (reference) {
+      if (!isVerifiedFilterRoute(reference.country, reference.city))
+        unsupported();
+      identity(side + '_country_id', reference.country.id);
+      if (reference.city) identity(side + '_city_id', reference.city.id);
+      continue;
+    }
     const value = filters[side];
     if (value) {
       if (!value.country.id || !value.city.id) unsupported();
@@ -122,11 +138,15 @@ export function publicSearchParams(
     }
   }
   if (filters.query?.trim()) params.search = filters.query.trim();
+  if (filters.type && !['send', 'carry'].includes(filters.type)) unsupported();
   if (filters.type)
     params.ad_type = filters.type === 'carry' ? 'Carring' : 'Send';
   if (filters.weightKg !== undefined) params.weight = filters.weightKg;
   const date = filters.dates?.start ?? filters.date;
-  if (date) params.departure_on = date;
+  if (date) {
+    if (!validDate(date)) unsupported();
+    params.departure_on = date;
+  }
   const valid = z
     .object({
       page: z.number().int().min(1).max(100000),
@@ -162,7 +182,10 @@ export async function getPublicListings(
   )
     throw new ApiError('Unable to read listings.', 'unknown');
   const data = parsed.data.data;
-  return { data: data.items.map(normalize), meta: data.pagination };
+  return {
+    data: data.items.map(normalizePublicListing),
+    meta: data.pagination,
+  };
 }
 export async function getPublicListingDetails(
   value: string,
@@ -184,7 +207,7 @@ export async function getPublicListingDetails(
     throw new ApiError('Unable to read listing.', 'unknown');
   const row = parsed.data.data;
   const result = {
-    ...normalize(row),
+    ...normalizePublicListing(row),
     ownerId: row.owner.id,
     status: 'active' as const,
     description: row.description,

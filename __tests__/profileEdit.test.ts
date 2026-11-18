@@ -1,4 +1,5 @@
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import { Image } from 'react-native';
 import {
   chooseProfilePhoto,
   validateAvatar,
@@ -16,6 +17,12 @@ const valid = {
   callingCountry: 'PK' as const,
   location: null,
 };
+beforeEach(() => {
+  jest.spyOn(Image, 'getSize').mockImplementation((_uri, success) => {
+    success?.(512, 512);
+    return Promise.resolve({ width: 512, height: 512 });
+  });
+});
 afterEach(() => jest.restoreAllMocks());
 test('edit validation requires identity/calling code/phone and normalizes name/email', () => {
   expect(editProfileSchema.parse(valid)).toMatchObject({

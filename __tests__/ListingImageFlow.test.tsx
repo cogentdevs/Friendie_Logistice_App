@@ -137,6 +137,7 @@ test('confirmed 201 precedes multipart POST; image never enters Create JSON; one
     expect.objectContaining({
       type: 'success',
       text1: 'Listing image uploaded successfully',
+        text2: 'Your image is saved to the created listing.',
     }),
   );
   expect(useListingDraft.getState().imageRecovery).toBeUndefined();
@@ -208,6 +209,29 @@ test('definite upload failure retains real ID/image, Retry posts only image and 
   ]);
   expect(created).toHaveBeenCalledWith(123);
 });
+test('a stale Retry callback after confirmed success cannot restore old recovery or upload again', async () => {
+  post.mockImplementation(async url => {
+    if (url === '/customer/listings')
+      return {
+        status: 201,
+        data: { success: true, message: 'Created', data: row },
+      };
+    throw new ApiError('Rejected', 'validation', 422);
+  });
+  await mount();
+  await Renderer.act(async () => controller.submit());
+  const staleRetry = controller.retryImage;
+  post.mockResolvedValue({
+    status: 200,
+    data: { success: true, message: 'Saved', data: { image_url: savedUrl } },
+  });
+  await Renderer.act(async () => controller.retryImage());
+  expect(useListingDraft.getState().imageRecovery).toBeUndefined();
+  await Renderer.act(async () => staleRetry());
+  expect(useListingDraft.getState().imageRecovery).toBeUndefined();
+  expect(post).toHaveBeenCalledTimes(3);
+});
+
 test('unknown upload reconciles owner GET but remains held without proof; remount never resubmits', async () => {
   post.mockImplementation(async url => {
     if (url === '/customer/listings')
@@ -431,6 +455,20 @@ test('selection previews immediately, cancellation retains it and local Remove n
   expect(remove).not.toHaveBeenCalled();
   expect(post).not.toHaveBeenCalled();
 });
+test('a previous local preview error cannot hide a newly selected image', async () => {
+  await mount(<ListingImagePreview uri="content://old-image" />);
+  const oldError = tree.root.findByType(Image).props.onError;
+  await Renderer.act(async () => oldError());
+  expect(tree.root.findAllByType(Image)).toHaveLength(0);
+  await Renderer.act(async () =>
+    tree.update(wrap(<ListingImagePreview uri="content://new-image" />)),
+  );
+  await Renderer.act(async () => oldError());
+  expect(tree.root.findByType(Image).props.source).toEqual({
+    uri: 'content://new-image',
+  });
+});
+
 test('picker errors and invalid image preserve selected preview with existing Toast', async () => {
   const change = jest.fn();
   jest

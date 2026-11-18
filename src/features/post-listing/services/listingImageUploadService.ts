@@ -1,3 +1,4 @@
+import { acquireListingImage } from './listingImageOperations';
 import { z } from 'zod';
 import { apiClient } from '../../../services/api/apiClient';
 import { endpoints } from '../../../services/api/endpoints';
@@ -54,6 +55,7 @@ export async function uploadListingImage(
       'Image upload is pending, completed or awaiting confirmation. Do not resubmit.',
       'validation',
     );
+  const finishOperation = acquireListingImage(listing.id, 'upload');
   entries.set(listing.id, { state: 'pending', image });
   const current = () =>
     useAuthStore.getState().status === 'authenticated' &&
@@ -114,12 +116,14 @@ export async function uploadListingImage(
     const parsed = schema.safeParse(response.data);
     if (response.status !== 200 || !parsed.success)
       throw new ApiError('Image upload could not be confirmed.', 'unknown');
+    finishOperation('release');
     entries.set(listing.id, { state: 'uploaded', image });
     return parsed.data.data.image_url;
   } catch (error) {
     const rejection =
       error instanceof ApiError &&
       [400, 401, 403, 404, 409, 413, 415, 422, 429].includes(error.status ?? 0);
+    finishOperation(!posted || rejection ? 'release' : 'unknown');
     if (current())
       entries.set(listing.id, {
         state: !posted || rejection ? 'failed' : 'unknown',

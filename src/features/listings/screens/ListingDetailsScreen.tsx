@@ -1,3 +1,5 @@
+import { useRemoveListingImage } from '../hooks/useRemoveListingImage';
+import { RemoveListingImageConfirmation } from '../components/RemoveListingImageConfirmation';
 import { SubmitReviewDialog } from '../../reviews/components/SubmitReviewDialog';
 import { useSubmitReview } from '../../reviews/hooks/useSubmitReview';
 import { InitialMessageDialog } from '../components/InitialMessageDialog';
@@ -100,6 +102,10 @@ function DetailsContent({
   const authStatus = useAuthStore(state => state.status);
   const privateRead =
     returnTo === 'MyListings' && authStatus === 'authenticated';
+  const removeImage = useRemoveListingImage(
+    privateRead && detail && 'backend' in detail ? detail.backend : undefined,
+    focused,
+  );
   const initial = useInitialConversation(
     detail,
     focused,
@@ -221,8 +227,9 @@ function DetailsContent({
   const [saving, setSaving] = useState(false),
     [actionError, setActionError] = useState(''),
     [menu, setMenu] = useState(false),
-    [coverFailed, setCoverFailed] = useState(false),
+    [failedCoverUrl, setFailedCoverUrl] = useState<string | null>(null),
     [avatarFailed, setAvatarFailed] = useState(false);
+  const coverFailed = failedCoverUrl === (detail?.coverImageUrl ?? 'demo');
   const saveInFlight = useRef(false);
   const saved = owner === user?.id && ids.includes(Number(id));
   useEffect(() => {
@@ -533,7 +540,9 @@ function DetailsContent({
                   source={demoCover ?? { uri: detail.coverImageUrl }}
                   style={styles.coverImage}
                   resizeMode="cover"
-                  onError={() => setCoverFailed(true)}
+                  onError={() =>
+                    setFailedCoverUrl(detail.coverImageUrl ?? 'demo')
+                  }
                 />
               ) : (
                 <View style={styles.coverFallback}>
@@ -544,6 +553,15 @@ function DetailsContent({
                 </View>
               )}
             </View>
+            {removeImage.available && (
+              <AppButton
+                title="Remove uploaded image"
+                variant="ghost"
+                disabled={!removeImage.enabled}
+                loading={removeImage.busy}
+                onPress={removeImage.open}
+              />
+            )}
             <View style={styles.identity}>
               <View style={styles.avatar}>
                 {detail.traveller?.avatarUrl && !avatarFailed ? (
@@ -726,6 +744,20 @@ function DetailsContent({
             ) ??
               'Requests and contact authorization require a verified backend connection.'}
           </AppText>
+          {authStatus === 'authenticated' &&
+            user?.id === detail.ownerId &&
+            privateRead &&
+            'backend' in detail && (
+              <AppButton
+                title="Edit"
+                onPress={() =>
+                  navigation.getParent()?.navigate('PostListingStack', {
+                    screen: 'PostListing',
+                    params: { editListingId: String(detail.id) },
+                  })
+                }
+              />
+            )}
           {authStatus === 'authenticated' && user?.id === detail.ownerId ? (
             <AppButton
               title="Manage Listing"
@@ -757,6 +789,12 @@ function DetailsContent({
           )}
         </View>
       )}
+      <RemoveListingImageConfirmation
+        visible={removeImage.visible}
+        busy={removeImage.busy}
+        onCancel={removeImage.close}
+        onRemove={removeImage.confirm}
+      />
       <SubmitReviewDialog
         visible={submitReviewForm.visible}
         draft={submitReviewForm.draft}

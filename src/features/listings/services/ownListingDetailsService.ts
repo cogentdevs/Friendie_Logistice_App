@@ -25,6 +25,19 @@ export type OwnListingDetail = Omit<
   backend: OwnListingRecord;
 };
 
+let ownedRecords = new WeakMap<object, object>();
+useAuthStore.subscribe((state, previous) => {
+  if (state.user !== previous.user || state.status !== previous.status)
+    ownedRecords = new WeakMap();
+});
+export function isVerifiedOwnedListing(record: OwnListingRecord) {
+  const user = useAuthStore.getState().user;
+  return (
+    !!user &&
+    useAuthStore.getState().status === 'authenticated' &&
+    ownedRecords.get(record) === user
+  );
+}
 // The server scopes this read to created_by = the authenticated customer.
 export async function getOwnListingDetails(
   id: string,
@@ -71,6 +84,7 @@ export async function getOwnListingDetails(
       'unknown',
     );
   const row = parsed.data.data;
+  ownedRecords.set(row, session.user);
   return {
     id: row.id,
     ownerId: session.user.id,

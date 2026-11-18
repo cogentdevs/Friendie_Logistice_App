@@ -21,7 +21,10 @@ import {
   normalizeProfile,
   profileResponseSchema,
 } from './profileService';
-import { uploadProfileAvatar } from './profileAvatarService';
+import {
+  uploadProfileAvatar,
+  AvatarUploadUncertainError,
+} from './profileAvatarService';
 export class AvatarPartialSaveError extends ApiError {
   constructor(public avatarUrl: string, cause: unknown) {
     super(
@@ -145,7 +148,11 @@ export const profileEditService = {
         throw new ApiError('Please sign in again.', 'unauthorized', 401);
       if (avatar) {
         // Upload before text updates: changing email revokes the current token.
-        uploadedUrl = await uploadProfileAvatar(avatar, signal);
+        uploadedUrl = await uploadProfileAvatar(
+          avatar,
+          signal,
+          baseline.avatarUrl,
+        );
         check();
         if (!Object.keys(payload).length) {
           const refreshed = await getProfile(signal);
@@ -237,6 +244,7 @@ export const profileEditService = {
   },
 };
 export function profileUpdateErrorMessage(error: unknown): string {
+  if (error instanceof AvatarUploadUncertainError) return error.message;
   if (error instanceof AvatarPartialSaveError) return error.message;
   if (!(error instanceof ApiError))
     return 'Unable to confirm the profile update. Please try again.';

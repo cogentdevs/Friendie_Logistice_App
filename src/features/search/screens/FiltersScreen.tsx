@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
@@ -34,6 +34,8 @@ import { locationLabel, RouteLocation } from '../types/search';
 import { ExactPointPicker } from '../components/ExactPointPicker';
 import { RadiusSlider } from '../components/RadiusSlider';
 import { colors, radius, spacing } from '../../../theme';
+import { ListingReferencePicker } from '../../post-listing/components/ListingReferencePicker';
+import { isListingDemoMode } from '../../listings/development/demoListings';
 type Props = {
   route?: { key: string; name: string };
   navigation: {
@@ -46,6 +48,18 @@ type Props = {
 export function FiltersScreen({ navigation }: Props) {
   const focused = useIsFocused();
   const draft = useLocationFilters();
+  const demo = isListingDemoMode();
+  const applied = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      applied.current = false;
+    }, []),
+  );
+  const [referencePicker, setReferencePicker] = useState<{
+    side: 'from' | 'to';
+    kind: 'countries' | 'cities';
+    countryId?: number;
+  } | null>(null);
   const [picker, setPicker] = useState<'choices' | 'edit' | 'pin' | null>(null);
   const [field, setField] = useState('Country');
   const from = useSearchStore(state => state.filters.from),
@@ -128,6 +142,67 @@ export function FiltersScreen({ navigation }: Props) {
     >
       {focused && <StatusBar barStyle="dark-content" />}
       <ScreenContainer backgroundColor={colors.white} style={styles.content}>
+        {!demo && (
+          <View style={styles.fields}>
+            {(['from', 'to'] as const).flatMap(side =>
+              (['countries', 'cities'] as const).map(kind => {
+                const route = draft.routeReferences[side];
+                const label =
+                  (side === 'from' ? 'From ' : 'To ') +
+                  (kind === 'countries' ? 'Country' : 'City');
+                const value =
+                  kind === 'countries' ? route?.country : route?.city;
+                const disabled = kind === 'cities' && !route?.country;
+                return (
+                  <View key={label} style={styles.fieldGroup}>
+                    <AppText color={colors.navy} style={styles.fieldLabel}>
+                      {label}
+                    </AppText>
+                    <Pressable
+                      cssInterop={false}
+                      accessibilityRole="button"
+                      accessibilityLabel={'Choose ' + label}
+                      accessibilityState={{ disabled }}
+                      disabled={disabled}
+                      style={styles.field}
+                      onPress={() =>
+                        setReferencePicker({
+                          side,
+                          kind,
+                          countryId: route?.country.id,
+                        })
+                      }
+                    >
+                      <AppText
+                        color={value ? colors.navy : colors.textMuted}
+                        variant="bodySmall"
+                        style={styles.fieldValue}
+                      >
+                        {value?.name ??
+                          (disabled
+                            ? 'Select a country first'
+                            : 'Any ' + label.toLowerCase())}
+                      </AppText>
+                      <ChevronDown size={18} color={colors.secondary} />
+                    </Pressable>
+                    {value && (
+                      <AppButton
+                        title={'Clear ' + label}
+                        variant="ghost"
+                        onPress={() => {
+                          if (kind === 'countries')
+                            draft.selectRouteCountry(side);
+                          else if (route)
+                            draft.selectRouteCity(side, route.country.id);
+                        }}
+                      />
+                    )}
+                  </View>
+                );
+              }),
+            )}
+          </View>
+        )}
         <AppText
           accessibilityRole="header"
           color={colors.navy}
@@ -384,10 +459,54 @@ export function FiltersScreen({ navigation }: Props) {
           disabled={!draft.canApply}
           loading={draft.pending}
           onPress={() => {
-            if (draft.apply()) back();
+            if (applied.current) return;
+            if (draft.apply()) {
+              applied.current = true;
+              back();
+            }
           }}
         />
       </View>
+      {focused &&
+        !demo &&
+        referencePicker &&
+        (referencePicker.kind === 'countries' ||
+          draft.routeReferences[referencePicker.side]?.country.id ===
+            referencePicker.countryId) && (
+          <ListingReferencePicker
+            key={
+              referencePicker.side +
+              ':' +
+              referencePicker.kind +
+              ':' +
+              referencePicker.countryId
+            }
+            title={
+              'Select ' +
+              (referencePicker.side === 'from' ? 'From ' : 'To ') +
+              (referencePicker.kind === 'countries' ? 'Country' : 'City')
+            }
+            kind={referencePicker.kind}
+            countryId={
+              referencePicker.kind === 'cities'
+                ? referencePicker.countryId
+                : undefined
+            }
+            onClose={() => setReferencePicker(null)}
+            onSelect={option => {
+              if (typeof option.value === 'string') return;
+              if (referencePicker.kind === 'countries')
+                draft.selectRouteCountry(referencePicker.side, option.value);
+              else if (referencePicker.countryId !== undefined)
+                draft.selectRouteCity(
+                  referencePicker.side,
+                  referencePicker.countryId,
+                  option.value,
+                );
+              setReferencePicker(null);
+            }}
+          />
+        )}
       {picker === 'choices' && (
         <Modal animationType="slide" onRequestClose={() => setPicker(null)}>
           <SafeScreen

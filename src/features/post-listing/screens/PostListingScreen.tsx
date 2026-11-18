@@ -1,3 +1,7 @@
+import { ListingEditLoader } from '../components/ListingEditLoader';
+import { EditContext } from '../services/updateListingService';
+import { useEditListingDraft } from '../store/editListingDraftStore';
+import { ListingImagePreview } from '../components/ListingImageInput';
 import { useAuthStore } from '../../../store/authStore';
 import { isStaticTestingPreviewActive } from '../../../store/developmentStore';
 import { requireAuth } from '../../auth/services/authFlowCoordinator';
@@ -53,23 +57,42 @@ type Props = NativeStackScreenProps<
   PostStackParamList,
   'PostListing' | 'SendParcel' | 'CarryParcel'
 >;
-export function PostListingScreen({ navigation, route }: Props) {
+export function PostListingScreen(props: Props) {
+  const id =
+    props.route.name === 'PostListing'
+      ? props.route.params?.editListingId
+      : undefined;
+  return id ? (
+    <ListingEditLoader id={id}>
+      {context => <ListingForm key={id} {...props} edit={context} />}
+    </ListingEditLoader>
+  ) : (
+    <ListingForm {...props} />
+  );
+}
+function ListingForm({
+  navigation,
+  route,
+  edit,
+}: Props & { edit?: EditContext }) {
+  const draftStore = edit ? useEditListingDraft : useListingDraft;
   const account = useAuthStore(state => state.user),
     authStatus = useAuthStore(state => state.status);
   const focused = useIsFocused(),
     height = useHeaderHeight();
-  const dirty = useListingDraft(state => state.dirty);
-  const imageRecovery = useListingDraft(state => state.imageRecovery);
-  const initial = useRef(useListingDraft.getState().values);
+  const dirty = draftStore(state => state.dirty);
+  const imageRecovery = draftStore(state => state.imageRecovery);
+  const initial = useRef(draftStore.getState().values);
   const requested =
     route.name === 'SendParcel'
       ? 'send'
       : route.name === 'CarryParcel'
       ? 'carry'
-      : route.params?.type;
+      : (route.params as { type?: 'send' | 'carry' } | undefined)?.type;
   const first = useRef(true),
     alertOpen = useRef(false),
-    continuing = useRef(false);
+    continuing = useRef(false),
+    leavingEdit = useRef(false);
   const [picker, setPicker] = useState<'from' | 'to' | null>(null);
   const [reference, setReference] = useState<
     'categories' | 'currencies' | null
@@ -88,15 +111,15 @@ export function PostListingScreen({ navigation, route }: Props) {
         useAuthStore.getState().status !== authStatus
       )
         return;
-      const stored = useListingDraft.getState().values;
+      const stored = draftStore.getState().values;
       const values =
         first.current && requested ? { ...stored, type: requested } : stored;
       first.current = false;
       reset(values);
-      if (values.type !== stored.type)
-        useListingDraft.getState().update(values);
+      if (values.type !== stored.type) draftStore.getState().update(values);
       continuing.current = false;
-    }, [requested, reset, account, authStatus]),
+      leavingEdit.current = false;
+    }, [requested, reset, account, authStatus, draftStore]),
   );
   useEffect(() => {
     setPicker(null);
@@ -104,12 +127,16 @@ export function PostListingScreen({ navigation, route }: Props) {
   }, [account, authStatus]);
   const values = form.watch(),
     errors = form.formState.errors;
+  const activeEdit = () => !edit || useEditListingDraft.getState().listingId === String(edit.original.id);
   const persist = () => {
     if (
       useAuthStore.getState().user === account &&
-      useAuthStore.getState().status === authStatus
-    )
-      useListingDraft.getState().update(form.getValues());
+      useAuthStore.getState().status === authStatus && activeEdit()
+    ) {
+      const value = form.getValues();
+      draftStore.getState().update(value);
+      if (edit) edit.draft = value;
+    }
   };
   const confirmLeave = useCallback(
     (leave: () => void) => {
@@ -132,8 +159,9 @@ export function PostListingScreen({ navigation, route }: Props) {
             style: 'destructive',
             onPress: () => {
               alertOpen.current = false;
-              useListingDraft.getState().discard();
-              reset(useListingDraft.getState().values);
+              draftStore.getState().discard();
+              if (edit) edit.draft = undefined;
+              reset(draftStore.getState().values);
               leave();
             },
           },
@@ -141,7 +169,7 @@ export function PostListingScreen({ navigation, route }: Props) {
             text: 'Keep Draft',
             onPress: () => {
               alertOpen.current = false;
-              useListingDraft.getState().keep();
+              draftStore.getState().keep();
               leave();
             },
           },
@@ -154,27 +182,37 @@ export function PostListingScreen({ navigation, route }: Props) {
         },
       );
     },
-    [reset],
+    [reset, draftStore, edit],
   );
-  usePreventRemove(focused && dirty, ({ data }) =>
-    confirmLeave(() => navigation.dispatch(data.action)),
-  );
+  usePreventRemove(focused && dirty, ({ data }) => {
+    if (edit && leavingEdit.current) navigation.dispatch(data.action);
+    else confirmLeave(() => navigation.dispatch(data.action));
+  });
   const back = useCallback(() => {
     Keyboard.dismiss();
+    if (edit) {
+      const leave = () => {
+        leavingEdit.current = true;
+        navigation.reset({ index: 0, routes: [{ name: 'PostListing' }] });
+        navigation.getParent()?.navigate('ListingsStack', { screen: 'ListingDetails', params: { listingId: String(edit.original.id), returnTo: 'MyListings' } });
+      };
+      if (draftStore.getState().dirty) confirmLeave(leave); else leave();
+      return;
+    }
     if (navigation.getState().index > 0) navigation.goBack();
     else {
       const leave = () => navigation.getParent()?.navigate('HomeStack');
-      if (useListingDraft.getState().dirty) confirmLeave(leave);
+      if (draftStore.getState().dirty) confirmLeave(leave);
       else leave();
     }
-  }, [navigation, confirmLeave]);
+  }, [navigation, confirmLeave, draftStore, edit]);
   useLayoutEffect(() => {
     navigation.setOptions({
-      title: 'Post a Listing',
+      title: edit ? 'Edit Listing' : 'Post a Listing',
       headerTitleAlign: 'center',
       headerLeft: () => <BackButton onPress={back} />,
     });
-  }, [navigation, back]);
+  }, [navigation, back, edit]);
   useFocusEffect(
     useCallback(() => {
       const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -188,7 +226,7 @@ export function PostListingScreen({ navigation, route }: Props) {
     data => {
       if (
         useAuthStore.getState().user !== account ||
-        useAuthStore.getState().status !== authStatus
+        useAuthStore.getState().status !== authStatus || !activeEdit()
       )
         return;
       if (
@@ -204,9 +242,14 @@ export function PostListingScreen({ navigation, route }: Props) {
       if (continuing.current) return;
       continuing.current = true;
       Keyboard.dismiss();
-      useListingDraft.getState().update(data);
-      beginListingDraft(data);
-      navigation.navigate('ListingReview');
+      draftStore.getState().update(data);
+      if (edit) edit.draft = data;
+      else beginListingDraft(data);
+      if (edit)
+        navigation.navigate('ListingReview', {
+          editListingId: String(edit.original.id),
+        });
+      else navigation.navigate('ListingReview');
     },
     () => Keyboard.dismiss(),
   );
@@ -411,19 +454,24 @@ export function PostListingScreen({ navigation, route }: Props) {
               </View>
             )}
           />
-          <ListingImageInput
-            value={values.image}
-            disabled={!!imageRecovery}
-            onChange={image => {
-              if (
-                useAuthStore.getState().user !== account ||
-                useAuthStore.getState().status !== authStatus
-              )
-                return;
-              form.setValue('image', image, { shouldDirty: true });
-              persist();
-            }}
-          />
+          {!edit && (
+            <ListingImageInput
+              value={values.image}
+              disabled={!!imageRecovery}
+              onChange={image => {
+                if (
+                  useAuthStore.getState().user !== account ||
+                  useAuthStore.getState().status !== authStatus
+                )
+                  return;
+                form.setValue('image', image, { shouldDirty: true });
+                persist();
+              }}
+            />
+          )}
+          {edit?.original.image_url && (
+            <ListingImagePreview uri={edit.original.image_url} saved />
+          )}
         </ScreenContainer>
         <View style={styles.footer}>
           <GradientButton

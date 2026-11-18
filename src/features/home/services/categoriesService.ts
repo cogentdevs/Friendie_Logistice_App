@@ -13,20 +13,19 @@ export function categoriesDataSource() {
     ? 'static-testing'
     : 'api';
 }
+export const categorySchema = z.object({
+  id: z.number().int().positive(),
+  name: z.string(),
+  image_url: z
+    .url()
+    .refine(url => /^https?:\/\//i.test(url))
+    .nullable(),
+});
 const responseSchema = z.object({
   success: z.literal(true),
   message: z.string(),
   data: z.object({
-    items: z.array(
-      z.object({
-        id: z.number().int().positive(),
-        name: z.string(),
-        image_url: z
-          .url()
-          .refine(url => /^https?:\/\//i.test(url))
-          .nullable(),
-      }),
-    ),
+    items: z.array(categorySchema),
   }),
 });
 export async function getCategories(

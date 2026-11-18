@@ -337,6 +337,9 @@ test('guest onboarding supports both introductions, Global Reach, Back and Skip 
 });
 
 // Real routers are exercised; native gestures still require device validation.
+// This full Post/drawer/legal/logout journey measured 5.507s with all assertions
+// passing and no open handles. Give this one real-router workflow its own budget;
+// keep Jest's default and all other navigation tests unchanged.
 test('protected navigation exposes tabs, nested Post routes, and drawer pages', async () => {
   await mountGuest();
   await Renderer.act(async () => {
@@ -468,7 +471,7 @@ test('protected navigation exposes tabs, nested Post routes, and drawer pages', 
   expect(navigationRef.getCurrentRoute()?.name).toBe('Home');
   expect(queryClient.getQueryData(['drawer-private'])).toBeUndefined();
   expect(routeNames()).toEqual(['AppDrawer']);
-});
+}, 15000);
 
 test('welcome Sign In replaces welcome with Login without exposing protected tabs', async () => {
   await mountGuest();

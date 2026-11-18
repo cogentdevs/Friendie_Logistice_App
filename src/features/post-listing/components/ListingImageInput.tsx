@@ -18,9 +18,8 @@ export function ListingImagePreview({
   uri: string;
   saved?: boolean;
 }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [uri]);
-  return failed ? (
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+  return failedUri === uri ? (
     <AppText>
       Image preview unavailable. Please select an accessible image.
     </AppText>
@@ -32,7 +31,7 @@ export function ListingImagePreview({
       source={{ uri }}
       resizeMode="contain"
       style={styles.preview}
-      onError={() => setFailed(true)}
+      onError={() => setFailedUri(uri)}
     />
   );
 }

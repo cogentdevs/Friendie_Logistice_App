@@ -8,7 +8,7 @@ export function useLocationFilters() {
   const draft = useFilterDraftStore();
   useFocusEffect(
     useCallback(() => {
-      useFilterDraftStore.getState().syncApplied();
+      useFilterDraftStore.getState().syncApplied(true);
     }, []),
   );
   return { ...draft, canApply: draftReady(draft) };

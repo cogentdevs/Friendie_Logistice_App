@@ -1,4 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import Toast from 'react-native-toast-message';
+import { isListingDemoMode } from '../../listings/development/demoListings';
+import { validSearchWeight } from '../../search/types/searchValidation';
 import { Keyboard, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -60,19 +63,32 @@ export function HomeSearchCard({
   const submit = () => {
     if (form.formState.isSubmitting) return;
     form
-      .handleSubmit(() => {
-        Keyboard.dismiss();
-        onSearch(snapshot());
-      })()
+      .handleSubmit(
+        () => {
+          Keyboard.dismiss();
+          onSearch(snapshot());
+        },
+        errors => {
+          if (errors.query?.message)
+            Toast.show({
+              type: 'warning',
+              text1: 'Check your search',
+              text2: errors.query.message,
+            });
+        },
+      )()
       .catch(() => {});
   };
   const snapshot = (): SearchFilters => {
     const v = form.getValues();
     return {
+      ...(initial.routeReferences
+        ? { routeReferences: initial.routeReferences }
+        : {}),
       type: v.type,
       query: v.query.trim() || undefined,
       category: v.category || undefined,
-      weightKg: v.weight ? Number(v.weight) : undefined,
+      weightKg: v.weight.trim() ? Number(v.weight) : undefined,
       from: v.from ?? undefined,
       to: v.to ?? undefined,
       dates: v.dates,
@@ -81,13 +97,12 @@ export function HomeSearchCard({
   const open = () => {
     Keyboard.dismiss();
     const weight = form.getValues('weight');
-    if (
-      weight &&
-      (!/^\d+(\.\d+)?$/.test(weight) ||
-        !Number.isFinite(Number(weight)) ||
-        Number(weight) <= 0)
-    ) {
-      form.setError('weight', { message: 'Enter a positive weight in kg' });
+    if (!validSearchWeight(weight, isListingDemoMode())) {
+      form.setError('weight', {
+        message: isListingDemoMode()
+          ? 'Enter a positive weight in kg'
+          : 'Enter a whole-number weight from 0 to 2147483647 kg',
+      });
       return;
     }
     onFilters(snapshot());

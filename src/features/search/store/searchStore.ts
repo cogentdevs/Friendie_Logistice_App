@@ -1,6 +1,16 @@
 import { create } from 'zustand';
 import { RouteLocation, DateRange } from '../types/search';
+import type { ListingReference } from '../../post-listing/services/listingReferencesService';
+export type FilterRouteReference = {
+  country: ListingReference;
+  city?: ListingReference;
+};
+export type FilterRouteReferences = {
+  from?: FilterRouteReference;
+  to?: FilterRouteReference;
+};
 export interface SearchFilters {
+  routeReferences?: FilterRouteReferences;
   weightKg?: number;
   destinationCountry?: { id: string | number; code: string; name: string };
   query?: string;

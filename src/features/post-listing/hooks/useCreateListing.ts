@@ -150,13 +150,14 @@ export function useCreateListing(
     Toast.show({
       type: 'success',
       text1: 'Listing image uploaded successfully',
-      text2: 'Your listing remains Pending approval.',
+      text2: 'Your image is saved to the created listing.',
     });
     if (unchanged) onCreated(context.listing.id);
   };
   const retryImage = async () => {
     if (
       !recovery ||
+      useListingDraft.getState().imageRecovery !== recovery ||
       recovery.phase !== 'failed' ||
       flight.current ||
       !focused ||

@@ -57,7 +57,9 @@ const fixture: service.ListingDetail = {
   shareUrl: 'https://example.test/listings/12',
 };
 let tree: ReactTestRenderer, client: QueryClient;
+const editNavigate = jest.fn();
 const nav = {
+  getParent: () => ({ navigate: editNavigate }),
   getState: () => ({ routeNames: ['Listings'] }),
   setOptions: jest.fn(),
   canGoBack: () => true,
@@ -185,9 +187,55 @@ test('My Listings opens the owner endpoint without public/demo data or demo cove
   expect(
     tree.root.findAll(node => node.props.title === 'Manage Listing').length,
   ).toBeGreaterThan(0);
+  await press('Edit');
+  expect(editNavigate).toHaveBeenCalledWith('PostListingStack', {
+    screen: 'PostListing',
+    params: { editListingId: '12' },
+  });
   expect(client.getQueryData(['ownListingDetails', 88, '12'])).toBeDefined();
   expect(client.getQueryData(['listingDetails', '12', 'demo'])).toBeUndefined();
 });
+test('a new backend cover URL retries a failed image for the same owner listing; old errors cannot hide it', async () => {
+  const original = {
+    ...fixture,
+    ownerId: 88,
+    status: 'pending' as const,
+    backend: { ...ownListingFixture, status: 0 as const },
+    coverImageUrl: 'https://media.example.test/old.jpg',
+  };
+  jest.spyOn(ownDetails, 'getOwnListingDetails').mockResolvedValue(original);
+  await mount('MyListings');
+  const old = tree.root
+    .findAllByType(Image)
+    .find(node => node.props.source?.uri === original.coverImageUrl)!;
+  const oldError = old.props.onError;
+  await Renderer.act(async () => oldError());
+  expect(
+    tree.root
+      .findAllByType(Image)
+      .some(node => node.props.source?.uri === original.coverImageUrl),
+  ).toBe(false);
+  const updated = {
+    ...original,
+    coverImageUrl: 'https://media.example.test/new_unique.jpg',
+  };
+  await Renderer.act(async () => {
+    client.setQueryData(['ownListingDetails', 88, '12'], updated);
+  });
+  await settle();
+  expect(
+    tree.root
+      .findAllByType(Image)
+      .some(node => node.props.source?.uri === updated.coverImageUrl),
+  ).toBe(true);
+  await Renderer.act(async () => oldError());
+  expect(
+    tree.root
+      .findAllByType(Image)
+      .some(node => node.props.source?.uri === updated.coverImageUrl),
+  ).toBe(true);
+});
+
 test('fetches actual route ID and displays fee, units, verified identity and disabled unsupported request', async () => {
   const get = jest
     .spyOn(service, 'getListingDetails')
@@ -504,12 +552,10 @@ test('real public identity enables the existing Message traveller icon and opens
 });
 
 test('real Public Listing Details opens authorized review input without altering parcel requests', async () => {
-  jest
-    .spyOn(apiClient, 'get')
-    .mockResolvedValue({
-      status: 200,
-      data: { success: true, data: { ...publicListingFixture, id: 12 } },
-    });
+  jest.spyOn(apiClient, 'get').mockResolvedValue({
+    status: 200,
+    data: { success: true, data: { ...publicListingFixture, id: 12 } },
+  });
   const remote = await getPublicListingDetails('12');
   jest.spyOn(service, 'getListingDetails').mockResolvedValue(remote);
   const post = jest.spyOn(apiClient, 'post');

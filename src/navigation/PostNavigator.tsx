@@ -3,7 +3,7 @@ import { PostListingScreen } from '../features/post-listing/screens/PostListingS
 import { ListingReviewScreen } from '../features/post-listing/screens/ListingReviewScreen';
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { PostStackParamList } from './navigationTypes';
+import { MainTabParamList, PostStackParamList } from './navigationTypes';
 import { stackOptions, backOptions } from './stackOptions';
 
 import {
@@ -47,7 +47,7 @@ export const PostNavigator = withAccountAccess(
   PostNavigatorContent,
   (props: {
     route: {
-      params?: { screen?: string; params?: { type?: 'send' | 'carry' } };
+      params?: MainTabParamList['PostListingStack'];
     };
   }) => ({
     type: 'POST_LISTING',
@@ -57,7 +57,11 @@ export const PostNavigator = withAccountAccess(
           ? 'send'
           : props.route.params?.screen === 'CarryParcel'
           ? 'carry'
-          : props.route.params?.params?.type,
+          : (
+              props.route.params?.params as
+                | { type?: 'send' | 'carry' }
+                | undefined
+            )?.type,
     },
   }),
 );

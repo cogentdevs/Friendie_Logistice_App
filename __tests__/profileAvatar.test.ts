@@ -54,6 +54,7 @@ const adapter = apiClient.defaults.adapter,
 let calls: string[];
 beforeEach(() => {
   calls = [];
+  useAuthStore.getState().clear();
   useAuthStore.getState().setUser(member);
   useDevelopmentStore.setState({ previewActive: false });
   appConfig.profileApiVerified = true;

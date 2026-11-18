@@ -18,7 +18,13 @@ import {
   resolveFilterReference,
 } from '../../location/services/filterLocationService';
 import { RouteLocation } from '../types/search';
-import { useSearchStore } from './searchStore';
+import { FilterRouteReferences, useSearchStore } from './searchStore';
+import {
+  isVerifiedFilterRoute,
+  ListingReference,
+} from '../../post-listing/services/listingReferencesService';
+import { isListingDemoMode } from '../../listings/development/demoListings';
+import { publicSearchParams } from '../../listings/services/publicListingsService';
 type GpsPoint = Coordinates & {
   accuracyMeters: number;
   capturedAt: number;
@@ -33,6 +39,14 @@ type ManualPoint = {
 };
 export type RadiusTarget = 'origin' | 'destination';
 interface Draft {
+  routeReferences: FilterRouteReferences;
+  routeChanges: { from?: boolean; to?: boolean };
+  selectRouteCountry: (side: 'from' | 'to', country?: ListingReference) => void;
+  selectRouteCity: (
+    side: 'from' | 'to',
+    countryId: number,
+    city?: ListingReference,
+  ) => void;
   mode: 'worldwide' | 'gps' | 'manual';
   radiusKm: number;
   gps?: GpsPoint;
@@ -44,7 +58,7 @@ interface Draft {
   problem?: { reason: string; message: string };
   revision: number;
   appliedKey?: string;
-  syncApplied: () => void;
+  syncApplied: (force?: boolean) => void;
   selectGps: () => Promise<void>;
   selectManual: () => void;
   resolveManual: (value: RouteLocation) => Promise<void>;
@@ -65,6 +79,7 @@ function appliedKey() {
     f.verifiedOnly,
     f.availableNow,
     f.radiusTarget,
+    f.routeReferences,
   ]);
 }
 export function gpsFresh(point?: GpsPoint) {
@@ -86,6 +101,44 @@ export function draftReady(
   );
 }
 export const useFilterDraftStore = create<Draft>((set, get) => ({
+  routeReferences: {},
+  routeChanges: {},
+  selectRouteCountry: (side, country) => {
+    if (country && !isVerifiedFilterRoute(country)) return;
+    const previous = get().routeReferences[side];
+    set({
+      routeReferences: {
+        ...get().routeReferences,
+        [side]: country
+          ? {
+              country,
+              ...(previous?.country.id === country.id && previous.city
+                ? { city: previous.city }
+                : {}),
+            }
+          : undefined,
+      },
+      routeChanges: { ...get().routeChanges, [side]: true },
+      problem: undefined,
+    });
+  },
+  selectRouteCity: (side, countryId, city) => {
+    const route = get().routeReferences[side];
+    if (
+      !route ||
+      route.country.id !== countryId ||
+      !isVerifiedFilterRoute(route.country, city)
+    )
+      return;
+    set({
+      routeReferences: {
+        ...get().routeReferences,
+        [side]: { country: route.country, ...(city ? { city } : {}) },
+      },
+      routeChanges: { ...get().routeChanges, [side]: true },
+      problem: undefined,
+    });
+  },
   mode: 'worldwide',
   radiusKm: 25,
   verifiedOnly: false,
@@ -93,9 +146,9 @@ export const useFilterDraftStore = create<Draft>((set, get) => ({
   target: 'origin',
   pending: false,
   revision: 0,
-  syncApplied: () => {
+  syncApplied: force => {
     const key = appliedKey();
-    if (get().appliedKey === key) return;
+    if (!force && get().appliedKey === key) return;
     const selection = useLocationStore.getState().selection,
       filters = useSearchStore.getState().filters;
     let mode: Draft['mode'] = 'worldwide',
@@ -155,6 +208,8 @@ export const useFilterDraftStore = create<Draft>((set, get) => ({
       }
     }
     set({
+      routeReferences: filters.routeReferences ?? {},
+      routeChanges: {},
       mode,
       gps,
       manual,
@@ -264,6 +319,8 @@ export const useFilterDraftStore = create<Draft>((set, get) => ({
     }),
   reset: () =>
     set({
+      routeReferences: {},
+      routeChanges: { from: true, to: true },
       mode: 'worldwide',
       radiusKm: 25,
       gps: undefined,
@@ -290,6 +347,22 @@ export const useFilterDraftStore = create<Draft>((set, get) => ({
       return false;
     }
     let selection: LocationSelection = { mode: 'worldwide' };
+    const routes =
+      !isListingDemoMode() && (state.routeChanges.from || state.routeChanges.to)
+        ? {
+            routeReferences: state.routeReferences,
+            ...(state.routeChanges.from
+              ? { from: undefined, origin: undefined }
+              : {}),
+            ...(state.routeChanges.to
+              ? {
+                  to: undefined,
+                  destination: undefined,
+                  destinationCountry: undefined,
+                }
+              : {}),
+          }
+        : {};
     if (state.mode === 'gps' && state.gps)
       selection = {
         mode: 'radius',
@@ -328,10 +401,35 @@ export const useFilterDraftStore = create<Draft>((set, get) => ({
         },
       };
     }
+    if (!isListingDemoMode()) {
+      try {
+        publicSearchParams(
+          1,
+          {
+            ...useSearchStore.getState().filters,
+            ...routes,
+            verifiedOnly: state.verifiedOnly,
+            availableNow: state.availableNow,
+            radiusTarget: state.target,
+          },
+          selection,
+        );
+      } catch {
+        set({
+          problem: {
+            reason: 'unsupported',
+            message:
+              'Radius, verified-user and availability filters are not supported by the public API. Use worldwide search with supported route IDs and an exact date.',
+          },
+        });
+        return false;
+      }
+    }
     if (selection.mode === 'worldwide')
       useLocationStore.getState().useWorldwide();
     else useLocationStore.getState().setLocation(selection.filter);
     useSearchStore.getState().setFilters({
+      ...routes,
       verifiedOnly: state.verifiedOnly,
       availableNow: state.availableNow,
       radiusTarget: state.target,

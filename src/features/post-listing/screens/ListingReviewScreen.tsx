@@ -1,3 +1,5 @@
+import { useEditListingDraft } from '../store/editListingDraftStore';
+import { useUpdateListing } from '../hooks/useUpdateListing';
 import React from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -15,17 +17,58 @@ import {
 import { displayDate } from '../../search/types/search';
 import { useCreateListing } from '../hooks/useCreateListing';
 import { ListingImagePreview } from '../components/ListingImageInput';
-export function ListingReviewScreen({
-  navigation,
-}: NativeStackScreenProps<PostStackParamList, 'ListingReview'>) {
-  const values = useListingDraft(state => state.values),
-    valid = listingDraftSchema.safeParse(values).success;
-  const create = useCreateListing(useIsFocused(), id =>
-    navigation.getParent()?.navigate('ListingsStack', {
-      screen: 'ListingDetails',
-      params: { listingId: String(id), returnTo: 'MyListings' },
-    }),
+type Props = NativeStackScreenProps<PostStackParamList, 'ListingReview'>;
+export function ListingReviewScreen(props: Props) {
+  return props.route?.params?.editListingId ? (
+    <EditReview {...props} />
+  ) : (
+    <CreateReview {...props} />
   );
+}
+function destination(navigation: Props['navigation'], id: number) {
+  navigation.getParent()?.navigate('ListingsStack', {
+    screen: 'ListingDetails',
+    params: { listingId: String(id), returnTo: 'MyListings' },
+  });
+}
+function CreateReview(props: Props) {
+  const create = useCreateListing(useIsFocused(), id =>
+    destination(props.navigation, id),
+  );
+  return <ReviewContent {...props} create={create} action={create} />;
+}
+function EditReview(props: Props) {
+  const update = useUpdateListing(
+    props.route.params?.editListingId,
+    useIsFocused(),
+    id => {
+      props.navigation.reset({ index: 0, routes: [{ name: 'PostListing' }] });
+      destination(props.navigation, id);
+    },
+  );
+  return <ReviewContent {...props} action={update} />;
+}
+function ReviewContent({
+  navigation,
+  route,
+  create: suppliedCreate,
+  action,
+}: Props & {
+  create?: ReturnType<typeof useCreateListing>;
+  action:
+    | ReturnType<typeof useCreateListing>
+    | ReturnType<typeof useUpdateListing>;
+}) {
+  const editId = route?.params?.editListingId;
+  const create = suppliedCreate ?? {
+    recovery: undefined,
+    held: undefined,
+    busy: false,
+    retryImage: () => {},
+  };
+  const draftStore = editId ? useEditListingDraft : useListingDraft;
+  const values = draftStore(state => state.values),
+    valid = listingDraftSchema.safeParse(values).success;
   return (
     <SafeScreen backgroundColor={colors.white}>
       <ScreenContainer backgroundColor={colors.white}>
@@ -51,21 +94,23 @@ export function ListingReviewScreen({
             {!!values.weight.trim() && (
               <AppText>{Number(values.weight)} kg</AppText>
             )}
-            <AppText>
-              Your listing will be Pending approval after creation.
-            </AppText>
+            {!editId && (
+              <AppText>
+                Your listing will be Pending approval after creation.
+              </AppText>
+            )}
           </>
         ) : (
           <AppText>
             Please complete all required listing fields before continuing.
           </AppText>
         )}
-        {Object.entries(create.errors).map(([field, messages]) => (
+        {Object.entries(action.errors).map(([field, messages]) => (
           <AppText key={field} accessibilityRole="alert" color={colors.danger}>
             {field}: {messages.join(' ')}
           </AppText>
         ))}
-        {(create.recovery?.image || values.image) && (
+        {!editId && (create.recovery?.image || values.image) && (
           <ListingImagePreview
             uri={
               create.recovery?.imageUrl ??
@@ -75,7 +120,7 @@ export function ListingReviewScreen({
             saved={!!create.recovery?.imageUrl}
           />
         )}
-        {create.recovery && (
+        {!editId && create.recovery && (
           <AppText accessibilityLiveRegion="polite">
             {`Listing ${create.recovery.listing.id} created. `}
             {create.recovery.phase === 'uploading'
@@ -97,7 +142,7 @@ export function ListingReviewScreen({
             onPress={create.retryImage}
           />
         )}
-        {create.held === 'confirmed' && (
+        {!editId && create.held === 'confirmed' && !create.recovery && (
           <AppText>
             This listing was already created. Check My Listings for its Pending
             record.
@@ -111,16 +156,20 @@ export function ListingReviewScreen({
           </AppText>
         )}
         <AppButton
-          title="Create listing"
-          loading={create.busy}
-          disabled={!valid || !!create.held}
-          onPress={create.submit}
+          title={editId ? 'Save changes' : 'Create listing'}
+          loading={action.busy}
+          disabled={!valid || !!action.held}
+          onPress={action.submit}
         />
         <AppButton
           title="Edit listing details"
           onPress={() => {
             if (navigation.getState().index > 0) navigation.goBack();
-            else navigation.replace('PostListing');
+            else
+              navigation.replace(
+                'PostListing',
+                editId ? { editListingId: editId } : undefined,
+              );
           }}
         />
       </ScreenContainer>

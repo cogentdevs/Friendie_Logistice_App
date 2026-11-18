@@ -26,8 +26,8 @@ export type ListingsStackParamList = {
   };
 };
 export type PostStackParamList = {
-  PostListing: { type?: 'send' | 'carry' } | undefined;
-  ListingReview: undefined;
+  PostListing: { type?: 'send' | 'carry'; editListingId?: string } | undefined;
+  ListingReview: { editListingId: string } | undefined;
   SendParcel: undefined;
   CarryParcel: undefined;
 };
