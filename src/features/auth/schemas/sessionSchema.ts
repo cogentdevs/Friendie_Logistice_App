@@ -17,3 +17,8 @@ export const loginResponseSchema = z.object({
     user: userSchema,
   }),
 });
+export const currentAccountResponseSchema = z.object({
+  success: z.literal(true),
+  message: z.literal('Account retrieved successfully.'),
+  data: userSchema.pick({ id: true, name: true, email: true }),
+});

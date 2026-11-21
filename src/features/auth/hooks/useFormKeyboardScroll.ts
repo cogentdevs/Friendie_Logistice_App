@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { Keyboard, ScrollView, TextInput } from 'react-native';
 import type React from 'react';
-import { spacing } from '../../../theme';
+import { revealInputInViewport } from '../../../components/layout/keyboardVisibility';
 
 type InputHandle = React.ComponentRef<typeof TextInput>;
 
@@ -13,10 +13,10 @@ export function useFormKeyboardScroll(enabled: boolean) {
   const revealFocusedInput = useCallback(() => {
     const input = focusedInput.current;
     if (enabled && input?.isFocused()) {
-      scrollRef.current?.scrollResponderScrollNativeHandleToKeyboard(
+      revealInputInViewport(
+        scrollRef.current,
         input,
-        spacing.lg,
-        true,
+        () => enabled && focusedInput.current === input && input.isFocused(),
       );
     }
   }, [enabled]);

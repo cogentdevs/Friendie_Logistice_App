@@ -50,6 +50,7 @@ export const placesService: PlacesProvider = {
           .catch(undefined),
         city: z.string().trim().min(1).optional(),
         area: z.string().trim().min(1).optional(),
+        streetAddress: z.string().trim().min(1).max(255).optional().catch(undefined),
       })
       .parse(result);
   },

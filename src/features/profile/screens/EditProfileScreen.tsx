@@ -62,6 +62,9 @@ import {
   avatarUploadRecovery,
   completeAvatarUpload,
   AvatarUploadUncertainError,
+  AvatarDeleteUncertainError,
+  avatarDeleteRecovery,
+  completeAvatarDelete,
 } from '../services/profileAvatarService';
 type Props = NativeStackScreenProps<ProfileStackParamList, 'EditProfile'>;
 export function EditProfileScreen({ navigation }: Props) {
@@ -152,7 +155,9 @@ function ProfileEditor({
   );
   const [removePhoto, setRemovePhoto] = useState(false);
   const [photoError, setPhotoError] = useState(() =>
-    !demo && avatarUploadRecovery()?.phase === 'unknown'
+    !demo && avatarDeleteRecovery()?.phase === 'unknown'
+      ? new AvatarDeleteUncertainError().message
+      : !demo && avatarUploadRecovery()?.phase === 'unknown'
       ? new AvatarUploadUncertainError().message
       : '',
   );
@@ -371,6 +376,7 @@ function ProfileEditor({
         if (!currentEditor() || request.current?.signal.aborted) return;
         client.setQueryData(['profile', profile.id], updated);
         completeAvatarUpload(photo);
+        completeAvatarDelete();
         form.reset(values);
         setPhoto(undefined);
         setRemovePhoto(false);
@@ -385,7 +391,8 @@ function ProfileEditor({
           return;
         if (error instanceof ApiError && error.kind === 'cancelled') return;
         if (
-          error instanceof AvatarUploadUncertainError &&
+          (error instanceof AvatarUploadUncertainError ||
+            error instanceof AvatarDeleteUncertainError) &&
           error.observedProfile?.id === profile.id &&
           currentEditor()
         ) {
@@ -441,9 +448,14 @@ function ProfileEditor({
         }
         Toast.show({
           type:
-            error instanceof AvatarUploadUncertainError ? 'warning' : 'error',
+            error instanceof AvatarUploadUncertainError ||
+            error instanceof AvatarDeleteUncertainError
+              ? 'warning'
+              : 'error',
           text1:
-            error instanceof AvatarUploadUncertainError
+            error instanceof AvatarDeleteUncertainError
+              ? 'Photo removal unconfirmed'
+              : error instanceof AvatarUploadUncertainError
               ? 'Photo upload unconfirmed'
               : 'Profile update failed',
           text2: profileUpdateErrorMessage(error),
@@ -465,10 +477,13 @@ function ProfileEditor({
   React.useEffect(() => {
     if (saved) navigation.popTo('Profile');
   }, [saved, navigation]);
-  const uri =
-    photo?.uri ?? (removePhoto ? undefined : profile.avatarUrl ?? undefined);
+  // Removal is staged until Save; keep the saved avatar visible until confirmation.
+  const uri = photo?.uri ?? incoming.avatarUrl ?? undefined;
   previewUri.current = uri;
-  const uploadHeld = !demo && avatarUploadRecovery()?.phase === 'unknown';
+  const uploadHeld =
+    !demo &&
+    (avatarUploadRecovery()?.phase === 'unknown' ||
+      avatarDeleteRecovery()?.phase === 'unknown');
   const fields = [
     { key: 'name', label: 'Full Name', icon: UserRound },
     { key: 'email', label: 'Email Address', icon: Mail },
@@ -537,8 +552,8 @@ function ProfileEditor({
             cssInterop={false}
             accessibilityRole="button"
             accessibilityLabel="Remove Photo"
-            disabled={busy || !uri}
-            accessibilityState={{ disabled: busy || !uri }}
+            disabled={busy || uploadHeld || !uri}
+            accessibilityState={{ disabled: busy || uploadHeld || !uri }}
             onPress={() => {
               setPhoto(undefined);
               setRemovePhoto(!!profile.avatarUrl);
@@ -751,7 +766,12 @@ function ProfileEditor({
           <GradientButton
             title="Save Changes"
             icon="none"
-            disabled={!dirty || busy || saved || (!!photo && uploadHeld)}
+            disabled={
+              !dirty ||
+              busy ||
+              saved ||
+              ((!!photo || removePhoto) && uploadHeld)
+            }
             loading={form.formState.isSubmitting || mutation.isPending}
             onPress={() => {
               save().catch(() => {});

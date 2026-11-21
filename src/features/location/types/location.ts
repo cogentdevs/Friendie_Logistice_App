@@ -4,6 +4,7 @@ export interface Coordinates {
   longitude: number;
 }
 export interface ResolvedAddress {
+  streetAddress?: string;
   countryName?: string;
   countryCode?: string;
   city?: string;

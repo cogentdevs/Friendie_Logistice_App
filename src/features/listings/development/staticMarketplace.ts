@@ -1,10 +1,7 @@
-import { appConfig } from '../../../constants/appConfig';
-// Only debug or the explicitly labelled native STATIC_TESTING build, never normal release.
+// Public browsing always uses Laravel. Fixture selection belongs to Jest mocks,
+// not debug/release/native testing flags or authentication state.
 export function isStaticMarketplaceEnabled() {
-  return (
-    (__DEV__ || appConfig.staticTestingBuild) &&
-    appConfig.staticMarketplaceEnabled
-  );
+  return false;
 }
 export class StaticMarketplaceDisabledError extends Error {
   constructor() {

@@ -10,6 +10,7 @@ import { TextInput } from 'react-native';
 import Renderer, { ReactTestRenderer } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LoginScreen } from '../src/features/auth/screens/LoginScreen';
+import { keyboardMeasurements } from '../test/fixtures/keyboard';
 import { authService } from '../src/features/auth/services/authService';
 import { ApiError } from '../src/types/api';
 import { useAuthStore } from '../src/store/authStore';
@@ -256,8 +257,9 @@ test('Login reveals the focused password after the keyboard opens and retains sc
   const {
     ScreenContainer,
   } = require('../src/components/layout/ScreenContainer');
-  const scroll = jest.fn();
-  const nativeInput = { isFocused: () => true, focus: jest.fn() };
+  const geometry = keyboardMeasurements(),
+    scroll = geometry.scrollTo;
+  const nativeInput = geometry.input;
   let keyboardShown: (() => void) | undefined;
   jest.spyOn(Keyboard, 'isVisible').mockReturnValue(false);
   jest
@@ -281,9 +283,7 @@ test('Login reveals the focused password after the keyboard opens and retains sc
   });
   // Attach native handles as supplied by the mounted ScrollView/TextInput.
   const container = tree.root.findByType(ScreenContainer);
-  container.props.scrollRef.current = {
-    scrollResponderScrollNativeHandleToKeyboard: scroll,
-  };
+  container.props.scrollRef.current = geometry.scroll;
   const { AppInput } = require('../src/components/ui/AppInput');
   const password = tree.root
     .findAllByType(AppInput)
@@ -294,7 +294,7 @@ test('Login reveals the focused password after the keyboard opens and retains sc
     password.props.onFocus();
     keyboardShown?.();
   });
-  expect(scroll).toHaveBeenCalledWith(nativeInput, expect.any(Number), true);
+  expect(scroll).toHaveBeenCalledWith({ y: 514, animated: true });
   expect(tree.root.findByType(ScrollView).props.keyboardShouldPersistTaps).toBe(
     'handled',
   );

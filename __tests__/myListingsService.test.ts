@@ -296,3 +296,44 @@ test('UI adapter rejects a session change in the await gap after the verified ra
     kind: 'cancelled',
   });
 });
+
+test.each(['all', 'pending'] as const)(
+  '%s displays server Pending without classifying it as Active or Completed',
+  async view => {
+    body = responseBody({ ...item, status: 0 });
+    apiClient.defaults.adapter = async config => {
+      expect(config.params).toEqual({
+        page: 1,
+        per_page: 20,
+        ...(view === 'pending' ? { status: 0 } : {}),
+      });
+      return { status: 200, statusText: '', config, headers: {}, data: body };
+    };
+    const result = await getMyListings(view, 1);
+    expect(result.data[0]).toMatchObject({
+      id: item.id,
+      status: 'pending',
+      backend: { status: 0 },
+    });
+  },
+);
+test('All preserves mixed backend statuses and authoritative pagination without a status parameter', async () => {
+  body = {
+    ...responseBody(),
+    data: {
+      ...responseBody().data,
+      items: [0, 1, 2].map((status, index) => ({
+        ...item,
+        id: 700 + index,
+        status,
+      })),
+    },
+  };
+  const result = await getMyListings('all', 1);
+  expect(result.data.map(record => record.status)).toEqual([
+    'pending',
+    'active',
+    'expired',
+  ]);
+  expect(result.meta.total).toBe(21);
+});

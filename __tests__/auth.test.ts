@@ -32,10 +32,11 @@ afterEach(() => {
   useAuthStore.getState().clear();
 });
 test('a revoked legacy session finishes restoration as a guest', async () => {
-  // Explicit coverage of the retained legacy branch; real Login restoration
-  // below reads the secure session and does not claim server revalidation.
+  // All stored sessions now require authoritative verification.
   appConfig.loginApiEnabled = false;
-  jest.spyOn(secureStorage, 'getToken').mockResolvedValue('revoked');
+  jest
+    .spyOn(secureStorage, 'getSession')
+    .mockResolvedValue({ token: 'revoked', user });
   jest.spyOn(authService, 'hydrate').mockImplementation(async () => {
     useAuthStore.getState().clear();
     throw new ApiError('Revoked', 'unauthorized', 401);
@@ -57,14 +58,24 @@ test('secure-session read failure propagates without deleting the credential', a
   expect(hydrate).not.toHaveBeenCalled();
   expect(useAuthStore.getState().status).toBe('guest');
 });
-test('valid secure session restores its owner once without a server validation request', async () => {
+test('valid secure session restores only after authoritative server verification', async () => {
   const read = jest
     .spyOn(secureStorage, 'getSession')
     .mockResolvedValue({ token: 'stored-test-token', user });
-  const get = jest.spyOn(apiClient, 'get');
+  jest.spyOn(secureStorage, 'getToken').mockResolvedValue('stored-test-token');
+  const get = jest
+    .spyOn(apiClient, 'get')
+    .mockResolvedValue({
+      status: 200,
+      data: {
+        success: true,
+        message: 'Account retrieved successfully.',
+        data: user,
+      },
+    });
   await authService.restore();
   expect(read).toHaveBeenCalledTimes(1);
-  expect(get).not.toHaveBeenCalled();
+  expect(get).toHaveBeenCalledTimes(1);
   expect(useAuthStore.getState().user).toEqual(user);
   expect(useAuthStore.getState().status).toBe('authenticated');
 });
@@ -126,7 +137,7 @@ test('late profile response after startup cancellation cannot authenticate a use
       }),
   );
   const controller = new AbortController();
-  const restore = authService.hydrate(controller.signal);
+  const restore = authService.hydrate(controller.signal, 'stored-test-token');
   controller.abort();
   finish({
     data: { data: { id: 4, name: 'Late member', email: 'late@example.test' } },

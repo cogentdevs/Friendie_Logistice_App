@@ -98,41 +98,49 @@ export function MyListingsScreen({
         </AppText>
       )}
       <View style={styles.segments} accessibilityRole="tablist">
-        {(['active', 'completed', 'expired'] as MyListingStatus[]).map(
-          value => {
-            const count =
-                meta?.counts?.[value] ??
-                (value === status ? meta?.total : undefined),
-              selected = value === status,
-              label = value.charAt(0).toUpperCase() + value.slice(1);
-            return (
-              <Pressable
-                key={value}
-                cssInterop={false}
-                accessibilityRole="tab"
-                accessibilityLabel={label + ' listings'}
-                accessibilityState={{ selected }}
-                onPress={() => select(value)}
-                style={styles.segment}
+        {(
+          (demo
+            ? ['active', 'completed', 'expired']
+            : [
+                'all',
+                'active',
+                'pending',
+                'completed',
+                'expired',
+              ]) as MyListingStatus[]
+        ).map(value => {
+          const count =
+              meta?.counts?.[value] ??
+              (value === status ? meta?.total : undefined),
+            selected = value === status,
+            label = value.charAt(0).toUpperCase() + value.slice(1);
+          return (
+            <Pressable
+              key={value}
+              cssInterop={false}
+              accessibilityRole="tab"
+              accessibilityLabel={label + ' listings'}
+              accessibilityState={{ selected }}
+              onPress={() => select(value)}
+              style={styles.segment}
+            >
+              {selected && (
+                <LinearGradient
+                  colors={[colors.primary, colors.primaryDark]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={StyleSheet.absoluteFill}
+                />
+              )}
+              <AppText
+                color={selected ? colors.white : colors.navy}
+                style={styles.segmentText}
               >
-                {selected && (
-                  <LinearGradient
-                    colors={[colors.primary, colors.primaryDark]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={StyleSheet.absoluteFill}
-                  />
-                )}
-                <AppText
-                  color={selected ? colors.white : colors.navy}
-                  style={styles.segmentText}
-                >
-                  {label + (count !== undefined ? ' (' + count + ')' : '')}
-                </AppText>
-              </Pressable>
-            );
-          },
-        )}
+                {label + (count !== undefined ? ' (' + count + ')' : '')}
+              </AppText>
+            </Pressable>
+          );
+        })}
       </View>
     </View>
   );
@@ -184,11 +192,15 @@ export function MyListingsScreen({
               <AppText color={colors.navy} variant="headingMD">
                 {query.isError
                   ? 'Unable to load your listings'
+                  : status === 'all'
+                  ? 'No listings'
                   : 'No ' + status + ' listings'}
               </AppText>
               <AppText accessibilityRole={query.isError ? 'alert' : undefined}>
                 {query.isError
                   ? myListingsErrorMessage(query.error)
+                  : status === 'all'
+                  ? 'Your listings will appear here.'
                   : 'Your ' + status + ' listings will appear here.'}
               </AppText>
               {query.isError && (

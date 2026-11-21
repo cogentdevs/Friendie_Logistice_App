@@ -12,6 +12,7 @@ import { useLocationStore } from '../features/location/store/locationStore';
 import { appConfig } from '../constants/appConfig';
 import { useAuthStore } from '../store/authStore';
 import { notificationService } from '../services/notifications/notificationService';
+import { AppState } from 'react-native';
 export type StartupStatus = 'initializing' | 'onboardingRequired' | 'ready';
 interface BootstrapState {
   ready: boolean;
@@ -108,6 +109,12 @@ export function AppBootstrap({ children }: PropsWithChildren) {
     };
   }, [attempt]);
   useEffect(() => notificationService.start(), []);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') authService.retryRestore().catch(() => {});
+    });
+    return () => subscription.remove();
+  }, []);
   const status: StartupStatus = !ready
     ? 'initializing'
     : enteredApp || onboarded || auth === 'authenticated'

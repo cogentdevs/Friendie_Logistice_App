@@ -24,11 +24,19 @@ import {
 import {
   uploadProfileAvatar,
   AvatarUploadUncertainError,
+  deleteProfileAvatar,
+  AvatarDeleteUncertainError,
 } from './profileAvatarService';
 export class AvatarPartialSaveError extends ApiError {
-  constructor(public avatarUrl: string, cause: unknown) {
+  constructor(
+    public avatarUrl: string | null,
+    cause: unknown,
+    removed = false,
+  ) {
     super(
-      'Photo uploaded, but the remaining profile save could not be confirmed. Your edits are preserved; try again.',
+      removed
+        ? 'Photo removed, but the remaining profile save could not be confirmed. Your edits are preserved; try again.'
+        : 'Photo uploaded, but the remaining profile save could not be confirmed. Your edits are preserved; try again.',
       cause instanceof ApiError ? cause.kind : 'unknown',
       cause instanceof ApiError ? cause.status : undefined,
       cause instanceof ApiError ? cause.fields : undefined,
@@ -92,9 +100,9 @@ export const profileEditService = {
       );
     if (!baseline || baseline.id !== session.user.id)
       throw new ApiError('Reload your profile before saving.', 'validation');
-    if (removeAvatar)
+    if (removeAvatar && avatar)
       throw new ApiError(
-        'Photo removal is not connected. Restore the original photo before saving.',
+        'Choose either photo replacement or removal.',
         'validation',
       );
     const current = () =>
@@ -105,7 +113,7 @@ export const profileEditService = {
         throw new ApiError('Profile update cancelled.', 'cancelled');
     };
     busy = true;
-    let uploadedUrl: string | undefined;
+    let uploadedUrl: string | null | undefined;
     try {
       const input = createEditProfileSchema(!baseline.phone).parse(values);
       const phone = input.phone
@@ -137,7 +145,7 @@ export const profileEditService = {
           );
         payload.country_id = countryId;
       }
-      if (!Object.keys(payload).length && !avatar)
+      if (!Object.keys(payload).length && !avatar && !removeAvatar)
         throw new ApiError(
           'No supported profile changes to save.',
           'validation',
@@ -146,13 +154,11 @@ export const profileEditService = {
       check();
       if (!token || !/^\S+$/.test(token))
         throw new ApiError('Please sign in again.', 'unauthorized', 401);
-      if (avatar) {
+      if (avatar || removeAvatar) {
         // Upload before text updates: changing email revokes the current token.
-        uploadedUrl = await uploadProfileAvatar(
-          avatar,
-          signal,
-          baseline.avatarUrl,
-        );
+        uploadedUrl = removeAvatar
+          ? await deleteProfileAvatar(signal)
+          : await uploadProfileAvatar(avatar!, signal, baseline.avatarUrl);
         check();
         if (!Object.keys(payload).length) {
           const refreshed = await getProfile(signal);
@@ -186,7 +192,7 @@ export const profileEditService = {
         );
       const data = parsed.data.data;
       const updated = normalizeProfile(data.profile);
-      if (uploadedUrl && updated.avatarUrl !== uploadedUrl)
+      if (uploadedUrl !== undefined && updated.avatarUrl !== uploadedUrl)
         throw new ApiError(
           'Saved photo could not be confirmed in the profile response.',
           'unknown',
@@ -223,11 +229,11 @@ export const profileEditService = {
       };
     } catch (error) {
       if (
-        uploadedUrl &&
+        uploadedUrl !== undefined &&
         current() &&
         !(error instanceof ApiError && error.kind === 'cancelled')
       )
-        throw new AvatarPartialSaveError(uploadedUrl, error);
+        throw new AvatarPartialSaveError(uploadedUrl, error, removeAvatar);
       if (error instanceof ApiError) throw error;
       if (error instanceof z.ZodError)
         throw new ApiError(
@@ -244,6 +250,7 @@ export const profileEditService = {
   },
 };
 export function profileUpdateErrorMessage(error: unknown): string {
+  if (error instanceof AvatarDeleteUncertainError) return error.message;
   if (error instanceof AvatarUploadUncertainError) return error.message;
   if (error instanceof AvatarPartialSaveError) return error.message;
   if (!(error instanceof ApiError))

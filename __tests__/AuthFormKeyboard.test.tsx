@@ -11,6 +11,7 @@ import { RegisterScreen } from '../src/features/auth/screens/RegisterScreen';
 import { ForgotPasswordScreen } from '../src/features/auth/screens/ForgotPasswordScreen';
 import { ScreenContainer } from '../src/components/layout/ScreenContainer';
 import { AppInput } from '../src/components/ui/AppInput';
+import { keyboardMeasurements } from '../test/fixtures/keyboard';
 import { useIsFocused } from '@react-navigation/native';
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
@@ -85,12 +86,11 @@ test.each([
   '%s reveals focused field on keyboard show, height change and viewport resize',
   async (screen, label) => {
     await mount(screen);
-    const scroll = jest.fn(),
-      nativeInput = { isFocused: jest.fn(() => true), focus: jest.fn() };
+    const geometry = keyboardMeasurements(),
+      scroll = geometry.scrollTo,
+      nativeInput = geometry.input;
     const container = tree.root.findByType(ScreenContainer);
-    container.props.scrollRef.current = {
-      scrollResponderScrollNativeHandleToKeyboard: scroll,
-    };
+    container.props.scrollRef.current = geometry.scroll;
     field(label).props.ref(nativeInput);
     await Renderer.act(async () => {
       field(label).props.onFocus();
@@ -99,7 +99,7 @@ test.each([
       listeners.get('keyboardDidShow')?.();
       listeners.get('keyboardDidChangeFrame')?.();
     });
-    expect(scroll).toHaveBeenCalledWith(nativeInput, expect.any(Number), true);
+    expect(scroll).toHaveBeenCalledWith({ y: 514, animated: true });
     scroll.mockClear();
     // Older Android adjustResize may resize without emitting a keyboard event.
     await Renderer.act(async () => {
@@ -125,13 +125,13 @@ test.each([
 test('Register Next focuses Confirm Password and reveals it while the keyboard is already visible', async () => {
   await mount('register');
   jest.spyOn(Keyboard, 'isVisible').mockReturnValue(true);
-  const scroll = jest.fn();
-  tree.root.findByType(ScreenContainer).props.scrollRef.current = {
-    scrollResponderScrollNativeHandleToKeyboard: scroll,
-  };
+  const geometry = keyboardMeasurements(),
+    scroll = geometry.scrollTo;
+  tree.root.findByType(ScreenContainer).props.scrollRef.current =
+    geometry.scroll;
   const confirm = field('Confirm Password');
   const confirmInput = {
-    isFocused: () => true,
+    ...geometry.input,
     focus: jest.fn(() => confirm.props.onFocus()),
   };
   confirm.props.ref(confirmInput);
@@ -139,11 +139,7 @@ test('Register Next focuses Confirm Password and reveals it while the keyboard i
     field('Password').props.onSubmitEditing();
   });
   expect(confirmInput.focus).toHaveBeenCalledTimes(1);
-  expect(scroll).toHaveBeenLastCalledWith(
-    confirmInput,
-    expect.any(Number),
-    true,
-  );
+  expect(scroll).toHaveBeenLastCalledWith({ y: 514, animated: true });
 });
 test.each([
   ['register', 'Confirm Password'],
@@ -152,12 +148,11 @@ test.each([
   '%s stops keyboard scrolling when screen loses focus',
   async (screen, label) => {
     await mount(screen);
-    const scroll = jest.fn(),
-      nativeInput = { isFocused: () => true, focus: jest.fn() };
+    const geometry = keyboardMeasurements(),
+      scroll = geometry.scrollTo,
+      nativeInput = geometry.input;
     const container = tree.root.findByType(ScreenContainer);
-    container.props.scrollRef.current = {
-      scrollResponderScrollNativeHandleToKeyboard: scroll,
-    };
+    container.props.scrollRef.current = geometry.scroll;
     field(label).props.ref(nativeInput);
     await Renderer.act(async () => {
       field(label).props.onFocus();
@@ -178,11 +173,11 @@ test('iOS keeps padding avoidance and reveals the focused email with an open key
   jest.replaceProperty(Platform, 'OS', 'ios');
   await mount('forgot');
   jest.spyOn(Keyboard, 'isVisible').mockReturnValue(true);
-  const scroll = jest.fn(),
-    nativeInput = { isFocused: () => true, focus: jest.fn() };
-  tree.root.findByType(ScreenContainer).props.scrollRef.current = {
-    scrollResponderScrollNativeHandleToKeyboard: scroll,
-  };
+  const geometry = keyboardMeasurements(),
+    scroll = geometry.scrollTo,
+    nativeInput = geometry.input;
+  tree.root.findByType(ScreenContainer).props.scrollRef.current =
+    geometry.scroll;
   field('Email Address').props.ref(nativeInput);
   await Renderer.act(async () => {
     field('Email Address').props.onFocus();
@@ -190,5 +185,5 @@ test('iOS keeps padding avoidance and reveals the focused email with an open key
   expect(tree.root.findByType(KeyboardAvoidingView).props.behavior).toBe(
     'padding',
   );
-  expect(scroll).toHaveBeenCalledWith(nativeInput, expect.any(Number), true);
+  expect(scroll).toHaveBeenCalledWith({ y: 514, animated: true });
 });

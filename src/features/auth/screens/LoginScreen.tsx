@@ -20,6 +20,7 @@ import { Eye, EyeOff, LockKeyhole, Mail } from 'lucide-react-native';
 import { AuthStackParamList } from '../../../navigation/navigationTypes';
 import { SafeScreen } from '../../../components/layout/SafeScreen';
 import { KeyboardScreen } from '../../../components/layout/KeyboardScreen';
+import { revealInputInViewport } from '../../../components/layout/keyboardVisibility';
 import { ScreenContainer } from '../../../components/layout/ScreenContainer';
 import { BrandLogo } from '../../../components/common/BrandLogo';
 import { AppText } from '../../../components/ui/AppText';
@@ -53,10 +54,10 @@ export function LoginScreen({ navigation }: Props) {
   const revealFocusedInput = useCallback(() => {
     const input = focusedInput.current;
     if (input?.isFocused()) {
-      scrollRef.current?.scrollResponderScrollNativeHandleToKeyboard(
+      revealInputInViewport(
+        scrollRef.current,
         input,
-        spacing.lg,
-        true,
+        () => focusedInput.current === input && input.isFocused(),
       );
     }
   }, []);

@@ -41,6 +41,8 @@ import { AppText } from '../../../components/ui/AppText';
 import { GradientButton } from '../../../components/ui/GradientButton';
 import { AppInput } from '../../../components/ui/AppInput';
 import { ListingLocationPicker } from '../components/ListingLocationPicker';
+import { useListingGps } from '../hooks/useListingGps';
+import type { ListingGpsResult } from '../services/listingGpsService';
 import { ListingReferencePicker } from '../components/ListingReferencePicker';
 import { colors } from '../../../theme';
 import { ListingDateField } from '../components/ListingDateField';
@@ -138,6 +140,20 @@ function ListingForm({
       if (edit) edit.draft = value;
     }
   };
+  const [detectedOrigin, setDetectedOrigin] = useState<ListingGpsResult>();
+  const addressEdited = useRef(false);
+  const gps = useListingGps(!edit && focused, () => !form.getValues('from') && !form.getValues('fromAddress')?.trim() && !addressEdited.current && !detectedOrigin, result => {
+    setDetectedOrigin(result);
+    if (result.address && !addressEdited.current && !form.getValues('fromAddress')?.trim()) {
+      form.setValue('fromAddress', result.address, { shouldDirty: true });
+      persist();
+    }
+    if (picker !== 'from' && result.city) {
+      form.setValue('from', { country: result.country, city: result.city, source: 'api', ...(result.area ? { area: { name: result.area } } : {}) }, { shouldDirty: true });
+      persist();
+    }
+  });
+  useEffect(() => { setDetectedOrigin(undefined); addressEdited.current = false; }, [account, authStatus]);
   const confirmLeave = useCallback(
     (leave: () => void) => {
       if (alertOpen.current) return;
@@ -341,6 +357,26 @@ function ListingForm({
               setReference('categories');
             }}
           />
+          {!edit && (
+            <Controller
+              control={form.control}
+              name="description"
+              render={({ field, fieldState }) => (
+                <AppInput
+                  label="Description (optional)"
+                  multiline
+                  value={field.value ?? ''}
+                  onChangeText={text => {
+                    field.onChange(text);
+                    persist();
+                  }}
+                  onBlur={field.onBlur}
+                  error={fieldState.error?.message}
+                  maxLength={10000}
+                />
+              )}
+            />
+          )}
           <ListingFormField
             label="Currency"
             icon={CreditCard}
@@ -355,13 +391,35 @@ function ListingForm({
           <ListingFormField
             label="From"
             icon={MapPin}
-            value={values.from ? listingLocationLabel(values.from) : undefined}
+            value={values.from ? listingLocationLabel(values.from) : detectedOrigin?.country.name}
             placeholder="Select country, city or area"
             error={errors.from?.message}
             onPress={() => {
+              gps.invalidate();
               Keyboard.dismiss();
               setPicker('from');
             }}
+          />
+          <Controller
+            control={form.control}
+            name="fromAddress"
+            render={({ field, fieldState }) => (
+              <AppInput
+                label="From Address"
+                placeholder="Enter pickup or departure address"
+                value={field.value ?? ''}
+                multiline
+                maxLength={255}
+                error={fieldState.error?.message}
+                onBlur={field.onBlur}
+                onChangeText={text => {
+                  addressEdited.current = true;
+                  gps.invalidate();
+                  field.onChange(text);
+                  persist();
+                }}
+              />
+            )}
           />
           <ListingFormField
             label="To"
@@ -373,6 +431,25 @@ function ListingForm({
               Keyboard.dismiss();
               setPicker('to');
             }}
+          />
+          <Controller
+            control={form.control}
+            name="toAddress"
+            render={({ field, fieldState }) => (
+              <AppInput
+                label="To Address"
+                placeholder="Enter delivery or destination address"
+                value={field.value ?? ''}
+                multiline
+                maxLength={255}
+                error={fieldState.error?.message}
+                onBlur={field.onBlur}
+                onChangeText={text => {
+                  field.onChange(text);
+                  persist();
+                }}
+              />
+            )}
           />
           <ListingDateField
             label="Departure Date"
@@ -398,6 +475,25 @@ function ListingForm({
               persist();
             }}
           />
+          {!edit && (
+            <Controller
+              control={form.control}
+              name="weightPrice"
+              render={({ field, fieldState }) => (
+                <AppInput
+                  label="Price per KG (optional)"
+                  keyboardType="decimal-pad"
+                  value={field.value ?? ''}
+                  onChangeText={text => {
+                    field.onChange(text);
+                    persist();
+                  }}
+                  onBlur={field.onBlur}
+                  error={fieldState.error?.message}
+                />
+              )}
+            />
+          )}
           <Controller
             control={form.control}
             name="weight"
@@ -486,7 +582,9 @@ function ListingForm({
           key={picker}
           title={picker === 'from' ? 'From location' : 'To location'}
           value={values[picker]}
-          onClose={() => setPicker(null)}
+          gps={!edit && picker === 'from' ? gps : undefined}
+          detected={!edit && picker === 'from' ? detectedOrigin : undefined}
+          onClose={() => { gps.invalidate(); if (picker === 'from') setDetectedOrigin(undefined); setPicker(null); }}
           onSelect={location => {
             if (
               useAuthStore.getState().user !== account ||
@@ -497,6 +595,7 @@ function ListingForm({
               shouldDirty: true,
               shouldValidate: form.formState.isSubmitted,
             });
+            if (picker === 'from') { gps.invalidate(); setDetectedOrigin(undefined); }
             persist();
             setPicker(null);
           }}

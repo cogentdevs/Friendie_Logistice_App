@@ -186,6 +186,7 @@ test('local photo preview never changes cached avatar and can restore original',
   expect(button('Save Changes').props.disabled).toBe(true);
 });
 test('photo removal remains a local draft, restores original and never changes profile cache', async () => {
+  const remove = jest.spyOn(apiClient, 'delete');
   await mount();
   await press('Remove Photo');
   expect(textPresent('Photo removal pending Save Changes')).toBe(true);
@@ -195,6 +196,56 @@ test('photo removal remains a local draft, restores original and never changes p
   expect(button('Save Changes').props.disabled).toBe(false);
   await press('Restore original photo');
   expect(button('Save Changes').props.disabled).toBe(true);
+  expect(remove).not.toHaveBeenCalled();
+});
+test('existing Remove Photo saves through DELETE and publishes only authoritative profile data', async () => {
+  jest.spyOn(Toast, 'show').mockImplementation(() => {});
+  await mount();
+  const canonical = 'https://example.test/backend-default.jpg';
+  jest
+    .spyOn(secureStorage, 'getToken')
+    .mockResolvedValue('avatar-delete-ui-test-token');
+  const remove = jest
+    .spyOn(apiClient, 'delete')
+    .mockResolvedValue({
+      status: 200,
+      data: {
+        success: true,
+        message: 'Avatar removed successfully.',
+        data: { image_url: canonical },
+      },
+    });
+  const put = jest.spyOn(apiClient, 'put');
+  await press('Remove Photo');
+  expect(remove).not.toHaveBeenCalled();
+  expect(client.getQueryData<profiles.Profile>(['profile', 8])?.avatarUrl).toBe(
+    person.avatarUrl,
+  );
+  expect(
+    tree.root
+      .findAllByType(Image)
+      .some(node => node.props.source?.uri === person.avatarUrl),
+  ).toBe(true);
+  jest
+    .mocked(profiles.getProfile)
+    .mockResolvedValue({ ...person, avatarUrl: canonical });
+  await press('Save Changes');
+  expect(remove).toHaveBeenCalledTimes(1);
+  expect(remove).toHaveBeenCalledWith(
+    '/customer/profile/avatar',
+    expect.objectContaining({
+      headers: { Authorization: 'Bearer avatar-delete-ui-test-token' },
+    }),
+  );
+  expect(put).not.toHaveBeenCalled();
+  expect(client.getQueryData<profiles.Profile>(['profile', 8])?.avatarUrl).toBe(
+    canonical,
+  );
+  expect(Toast.show).toHaveBeenCalledTimes(1);
+  expect(Toast.show).toHaveBeenCalledWith(
+    expect.objectContaining({ type: 'success' }),
+  );
+  expect(nav.popTo).toHaveBeenCalledWith('Profile');
 });
 
 test('load failure can retry; missing verification does not invent a badge', async () => {

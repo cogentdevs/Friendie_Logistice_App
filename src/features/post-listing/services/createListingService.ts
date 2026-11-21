@@ -23,8 +23,12 @@ export type CreateListingRequest = {
   departure_on: string;
   reached_on: string;
   from_area?: string;
+  from_address?: string;
+  to_address?: string;
   to_area?: string;
   weight?: number;
+  description?: string;
+  weight_price?: number;
   show_contact_info: 0;
 };
 const responseSchema = z.object({
@@ -104,6 +108,12 @@ export function createListingPayload(
     departure_on: value.date,
     reached_on: value.reachedOn!,
     show_contact_info: 0,
+    ...(value.fromAddress?.trim() ? { from_address: value.fromAddress.trim() } : {}),
+    ...(value.toAddress?.trim() ? { to_address: value.toAddress.trim() } : {}),
+    ...(value.description?.trim() ? { description: value.description } : {}),
+    ...(value.weightPrice?.trim()
+      ? { weight_price: Number(value.weightPrice) }
+      : {}),
     ...(value.weight.trim() ? { weight: Number(value.weight) } : {}),
     ...(value.from!.area?.name.trim()
       ? { from_area: value.from!.area!.name.trim() }
@@ -164,8 +174,11 @@ export async function createListing(draft: ListingDraft, signal?: AbortSignal) {
       !parsed.success ||
       parsed.data.data.status !== 0 ||
       parsed.data.data.show_contact_info !== 0 ||
+      (payload.from_address !== undefined && parsed.data.data.from_address !== payload.from_address) ||
+      (payload.to_address !== undefined && parsed.data.data.to_address !== payload.to_address) ||
       Object.entries(payload).some(
         ([key, value]) =>
+          key !== 'description' &&
           key in parsed.data.data &&
           parsed.data.data[key as keyof typeof parsed.data.data] !== value,
       )

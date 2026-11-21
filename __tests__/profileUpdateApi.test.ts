@@ -159,11 +159,16 @@ test.each([false, true])(
     expect(put).not.toHaveBeenCalled();
   },
 );
-test('unsupported photo changes and untouched fields never submit', async () => {
+test('conflicting photo changes and untouched fields never submit', async () => {
   const put = jest.spyOn(apiClient, 'put');
   await expect(
-    profileEditService.save(values, undefined, true, profile),
-  ).rejects.toThrow('Photo removal');
+    profileEditService.save(
+      values,
+      { uri: 'content://test', type: 'image/png', fileSize: 100 },
+      true,
+      profile,
+    ),
+  ).rejects.toThrow('Choose either');
   await expect(
     profileEditService.save(
       { ...values, name: member.name },

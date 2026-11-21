@@ -1,3 +1,4 @@
+import { KeyboardScrollView as ScrollView } from '../../../components/layout/KeyboardScrollView';
 import React, { useCallback, useRef, useState } from 'react';
 import {
   Alert,
@@ -5,7 +6,6 @@ import {
   Keyboard,
   Modal,
   Pressable,
-  ScrollView,
   StatusBar,
   StyleSheet,
   TextInput,
@@ -230,7 +230,7 @@ export function ContactUsScreen({
       <KeyboardScreen>
         <ScrollView
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode="none"
           contentContainerStyle={styles.content}
         >
           <View style={styles.illustration}>

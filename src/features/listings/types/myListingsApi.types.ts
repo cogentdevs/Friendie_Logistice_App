@@ -11,6 +11,8 @@ export const ownListingApiSchema = z.object({
   title: z.string().nullable(),
   description: z.string().nullable(),
   from_area: z.string().nullable(),
+  from_address: z.string().max(255).nullable().optional(),
+  to_address: z.string().max(255).nullable().optional(),
   to_area: z.string().nullable(),
   weight: z.number().int().nonnegative().nullable(),
   weight_price: z.number().finite().nonnegative().nullable(),

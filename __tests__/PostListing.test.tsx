@@ -1,10 +1,18 @@
 import { useAuthStore } from '../src/store/authStore';
 import React from 'react';
-import { Alert, TextInput } from 'react-native';
+import {
+  Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  TextInput,
+} from 'react-native';
 import Renderer, { ReactTestRenderer } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PostListingScreen } from '../src/features/post-listing/screens/PostListingScreen';
 import { ListingLocationPicker } from '../src/features/post-listing/components/ListingLocationPicker';
+import { listingGpsService } from '../src/features/post-listing/services/listingGpsService';
 import { ListingReferencePicker } from '../src/features/post-listing/components/ListingReferencePicker';
 import { SearchDatePicker } from '../src/features/search/components/SearchDatePicker';
 import { useListingDraft } from '../src/features/post-listing/store/listingDraftStore';
@@ -15,6 +23,8 @@ import {
 } from '../test/fixtures/createListing';
 import { apiClient } from '../src/services/api/apiClient';
 import { localDate } from '../src/features/search/types/search';
+import { KeyboardScrollView } from '../src/components/layout/KeyboardScrollView';
+import { keyboardMeasurements } from '../test/fixtures/keyboard';
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
   useIsFocused: () => true,
@@ -27,6 +37,36 @@ jest.mock('@react-navigation/elements', () => ({
   useHeaderHeight: () => 56,
 }));
 let tree: ReactTestRenderer, client: QueryClient;
+test('Task 35 manual addresses are independent, persisted in draft and use existing multiline inputs', async () => {
+  await mount();
+  for (const [label, value, key] of [['From Address', '12 Pickup Street', 'fromAddress'], ['To Address', '34 Delivery Road', 'toAddress']] as const) {
+    const input = tree.root.findAllByType(TextInput).filter(node => node.props.accessibilityLabel === label);
+    expect(input).toHaveLength(1);
+    expect(input[0].props.multiline).toBe(true);
+    expect(input[0].props.maxLength).toBe(255);
+    await Renderer.act(async () => input[0].props.onChangeText(value));
+    expect(useListingDraft.getState().values[key]).toBe(value);
+  }
+  expect(useListingDraft.getState().values.fromAddress).toBe('12 Pickup Street');
+});
+test('Task 35 automatic GPS fills From Address only and keeps manual destination', async () => {
+  useListingDraft.getState().update({ ...useListingDraft.getState().values, toAddress: 'Manual destination' });
+  jest.spyOn(listingGpsService, 'hasPermission').mockResolvedValue(true);
+  jest.spyOn(listingGpsService, 'enabled').mockResolvedValue(true);
+  jest.spyOn(listingGpsService, 'detect').mockResolvedValue({ country: createListingDraft.from!.country, city: createListingDraft.from!.city, address: '12 GPS Street' });
+  await mount();
+  expect(useListingDraft.getState().values).toMatchObject({fromAddress: '12 GPS Street', toAddress: 'Manual destination'});
+});
+test('Task 35 manual address typed during GPS wins over late result', async () => {
+  let resolve!: (value: Awaited<ReturnType<typeof listingGpsService.detect>>) => void;
+  jest.spyOn(listingGpsService, 'hasPermission').mockResolvedValue(true);
+  jest.spyOn(listingGpsService, 'enabled').mockResolvedValue(true);
+  jest.spyOn(listingGpsService, 'detect').mockImplementation(() => new Promise(done => { resolve = done; }));
+  await mount();
+  await Renderer.act(async () => tree.root.findAllByType(TextInput).find(node => node.props.accessibilityLabel === 'From Address')!.props.onChangeText('Manual origin'));
+  await Renderer.act(async () => resolve({country: createListingDraft.from!.country, city: createListingDraft.from!.city, address: 'Stale GPS Street'}));
+  expect(useListingDraft.getState().values.fromAddress).toBe('Manual origin');
+});
 const parentNavigate = jest.fn(),
   navigation = {
     navigate: jest.fn(),
@@ -109,6 +149,48 @@ test('empty/negative input cannot continue; switching type updates labels and pr
       .some(node => node.props.accessibilityLabel === 'Parcel Weight'),
   ).toBe(true);
   expect(useListingDraft.getState().values.weight).toBe('-2');
+});
+
+test('Create Listing retains the lower-field draft across keyboard focus/resize without submitting', async () => {
+  jest.replaceProperty(Platform, 'OS', 'android');
+  const post = jest.spyOn(apiClient, 'post');
+  await mount();
+  expect(tree.root.findByType(KeyboardAvoidingView).props.behavior).toBe(
+    'height',
+  );
+  expect(
+    tree.root.findByType(KeyboardAvoidingView).props.keyboardVerticalOffset,
+  ).toBe(56);
+  expect(tree.root.findAllByType(KeyboardScrollView)).toHaveLength(1);
+  const geometry = keyboardMeasurements();
+  const nativeInput = geometry.input;
+  jest
+    .spyOn(TextInput.State, 'currentlyFocusedInput')
+    .mockReturnValue(nativeInput as never);
+  const scroll = tree.root.findByType(ScrollView);
+  jest
+    .spyOn(scroll.instance, 'getNativeScrollRef')
+    .mockReturnValue(geometry.viewport);
+  jest
+    .spyOn(scroll.instance, 'getInnerViewRef')
+    .mockReturnValue(geometry.content);
+  const reveal = jest
+    .spyOn(scroll.instance, 'scrollTo')
+    .mockImplementation(() => {});
+  await weight('0');
+  jest.spyOn(Keyboard, 'isVisible').mockReturnValue(true);
+  await Renderer.act(async () => {
+    scroll.props.onFocus({});
+    scroll.props.onLayout({ nativeEvent: { layout: { height: 350 } } });
+  });
+  expect(reveal).toHaveBeenCalledWith({ y: 514, animated: true });
+  jest.mocked(Keyboard.isVisible).mockReturnValue(false);
+  await Renderer.act(async () => {
+    scroll.props.onLayout({ nativeEvent: { layout: { height: 750 } } });
+  });
+  expect(useListingDraft.getState().values.weight).toBe('0');
+  expect(post).not.toHaveBeenCalled();
+  expect(navigation.navigate).not.toHaveBeenCalled();
 });
 test('real reference selectors, title, two dates and integer capacity reach review', async () => {
   await mount();
@@ -250,4 +332,42 @@ test('Stay preserves editing and Discard clears the draft before leaving', async
   expect(useListingDraft.getState().values.weight).toBe('');
   expect(useListingDraft.getState().dirty).toBe(false);
   expect(parentNavigate).toHaveBeenCalledWith('HomeStack');
+});
+
+test('optional Description and Price per KG appear once and persist real user input without submitting', async () => {
+  const post = jest.spyOn(apiClient, 'post');
+  await mount();
+  for (const [label, value, key] of [
+    ['Description (optional)', 'My parcel description', 'description'],
+    ['Price per KG (optional)', '0', 'weightPrice'],
+  ] as const) {
+    const inputs = tree.root
+      .findAllByType(TextInput)
+      .filter(node => node.props.accessibilityLabel === label);
+    expect(inputs).toHaveLength(1);
+    if (key === 'description') expect(inputs[0].props.multiline).toBe(true);
+    await Renderer.act(async () => inputs[0].props.onChangeText(value));
+    expect(useListingDraft.getState().values[key]).toBe(value);
+  }
+  expect(post).not.toHaveBeenCalled();
+});
+
+test('Create From picker restores accessible GPS action without changing searchable selectors or destination', async () => {
+  await mount();
+  await press('Select From');
+  expect(tree.root.findByType(ListingLocationPicker).props.gps).toBeDefined();
+  expect(tree.root.findAll(node => node.props.accessibilityLabel === 'Use Current Location' && typeof node.props.onPress === 'function')).toHaveLength(1);
+  await press('Cancel location');
+  await press('Select To');
+  expect(tree.root.findByType(ListingLocationPicker).props.gps).toBeUndefined();
+});
+test('already-enabled automatic GPS fills only real origin IDs and preserves destination and price zero', async () => {
+  useListingDraft.getState().update({ ...useListingDraft.getState().values, to: createListingDraft.to, weightPrice: '0' });
+  jest.spyOn(listingGpsService, 'hasPermission').mockResolvedValue(true);
+  jest.spyOn(listingGpsService, 'enabled').mockResolvedValue(true);
+  jest.spyOn(listingGpsService, 'detect').mockResolvedValue({ country: createListingDraft.from!.country, city: createListingDraft.from!.city, area: 'Detected area' });
+  const post = jest.spyOn(apiClient, 'post');
+  await mount();
+  expect(useListingDraft.getState().values).toMatchObject({ from: { country: createListingDraft.from!.country, city: createListingDraft.from!.city, source: 'api', area: { name: 'Detected area' } }, to: createListingDraft.to, weightPrice: '0' });
+  expect(post).not.toHaveBeenCalled();
 });

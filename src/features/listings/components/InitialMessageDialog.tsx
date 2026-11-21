@@ -1,9 +1,9 @@
+import { KeyboardScrollView as ScrollView } from '../../../components/layout/KeyboardScrollView';
 import React from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
   StyleSheet,
   View,
 } from 'react-native';

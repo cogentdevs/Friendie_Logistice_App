@@ -17,10 +17,104 @@ type Upload = {
 };
 // Mutation recovery only; authoritative profile data stays in the existing query cache.
 let operation: Upload | undefined;
+let removal:
+  | { phase: 'pending' | 'unknown' | 'confirmed'; url?: string | null }
+  | undefined;
 useAuthStore.subscribe((state, previous) => {
-  if (state.user !== previous.user || state.status !== previous.status)
+  if (state.user !== previous.user || state.status !== previous.status) {
     operation = undefined;
+    removal = undefined;
+  }
 });
+export class AvatarDeleteUncertainError extends ApiError {
+  constructor(public observedProfile?: Profile) {
+    super(
+      'Photo removal could not be confirmed. Your changes are kept. Further photo changes are blocked to avoid repeating an uncertain request.',
+      'unknown',
+    );
+  }
+}
+export function avatarDeleteRecovery() {
+  return removal;
+}
+export function completeAvatarDelete() {
+  if (removal?.phase === 'confirmed') removal = undefined;
+}
+export async function deleteProfileAvatar(
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const session = useAuthStore.getState();
+  if (session.status !== 'authenticated' || !session.user)
+    throw new ApiError(
+      'Sign in with a real account to remove a photo.',
+      'unauthorized',
+      401,
+    );
+  const current = () =>
+    useAuthStore.getState().status === 'authenticated' &&
+    useAuthStore.getState().user === session.user;
+  const check = () => {
+    if (!current() || signal?.aborted)
+      throw new ApiError('Photo removal cancelled.', 'cancelled');
+  };
+  check();
+  if (operation?.phase === 'pending' || removal?.phase === 'pending')
+    throw new ApiError('A photo change is already in progress.', 'cancelled');
+  if (operation?.phase === 'unknown')
+    throw new AvatarUploadUncertainError(operation.observed);
+  if (removal?.phase === 'unknown') throw new AvatarDeleteUncertainError();
+  if (removal?.phase === 'confirmed') return removal.url!;
+  const attempt: NonNullable<typeof removal> = { phase: 'pending' };
+  removal = attempt;
+  let dispatched = false;
+  let token: string | null = null;
+  try {
+    token = await secureStorage.getToken();
+    check();
+    if (!token || !/^\S+$/.test(token))
+      throw new ApiError('Please sign in again.', 'unauthorized', 401);
+    dispatched = true;
+    const response = await apiClient.delete<unknown>(endpoints.profileAvatar, {
+      signal,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    check();
+    if ((await secureStorage.getToken()) !== token)
+      throw new ApiError('Session changed.', 'cancelled');
+    check();
+    const parsed = deleteResponseSchema.safeParse(response.data);
+    if (response.status !== 200 || !parsed.success)
+      throw new ApiError('Invalid photo removal response.', 'unknown');
+    attempt.phase = 'confirmed';
+    attempt.url = parsed.data.data.image_url;
+    return attempt.url;
+  } catch (error) {
+    const definite =
+      error instanceof ApiError &&
+      [400, 401, 403, 404, 409, 422, 429].includes(error.status ?? 0);
+    if (!dispatched || definite) {
+      if (removal === attempt) removal = undefined;
+      throw error;
+    }
+    attempt.phase = 'unknown';
+    let observed: Profile | undefined;
+    if (
+      current() &&
+      !signal?.aborted &&
+      (await secureStorage.getToken()) === token
+    ) {
+      try {
+        observed = await getProfile(signal);
+      } catch {
+        /* Keep the uncertainty hold. */
+      }
+    }
+    check();
+    if ((await secureStorage.getToken()) !== token)
+      throw new ApiError('Session changed.', 'cancelled');
+    throw new AvatarDeleteUncertainError(observed);
+  }
+}
 export class AvatarUploadUncertainError extends ApiError {
   constructor(public observedProfile?: Profile, status?: number) {
     super(
@@ -45,6 +139,12 @@ const responseSchema = z.object({
     image_url: z.url().refine(value => /^https?:\/\//i.test(value)),
   }),
 });
+const deleteResponseSchema = responseSchema.extend({
+  message: z.literal('Avatar removed successfully.'),
+  data: z.object({
+    image_url: responseSchema.shape.data.shape.image_url.nullable(),
+  }),
+});
 export async function uploadProfileAvatar(
   avatar: AvatarDraft,
   signal?: AbortSignal,
@@ -65,6 +165,11 @@ export async function uploadProfileAvatar(
       throw new ApiError('Photo upload cancelled.', 'cancelled');
   };
   check();
+  if (removal?.phase === 'pending')
+    throw new ApiError('A photo change is already in progress.', 'cancelled');
+  if (removal?.phase === 'unknown') throw new AvatarDeleteUncertainError();
+  // A later explicit upload supersedes a previously confirmed removal.
+  if (removal?.phase === 'confirmed') removal = undefined;
   if (operation?.phase === 'pending')
     throw new ApiError('A photo upload is already in progress.', 'cancelled');
   if (operation?.phase === 'unknown')

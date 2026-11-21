@@ -1,9 +1,9 @@
+import { KeyboardScrollView as ScrollView } from '../../../components/layout/KeyboardScrollView';
 import { requireAuth } from '../../auth/services/authFlowCoordinator';
 import React, { useState } from 'react';
 import {
   Keyboard,
   RefreshControl,
-  ScrollView,
   StatusBar,
   StyleSheet,
 } from 'react-native';
@@ -84,7 +84,7 @@ export function HomeScreen({ navigation }: Props) {
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode="none"
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

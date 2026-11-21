@@ -21,9 +21,23 @@ export const listingLocationLabel = (value: ListingLocation) =>
     .filter(Boolean)
     .join(', ');
 const common = {
+  fromAddress: z.string().max(255).optional(),
+  toAddress: z.string().max(255).optional(),
   from: listingLocationSchema.optional(),
   to: listingLocationSchema.optional(),
   title: z.string().max(255).optional(),
+  description: z.string().max(10000).optional(),
+  weightPrice: z
+    .string()
+    .refine(
+      value =>
+        !value.trim() ||
+        (/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.trim()) &&
+          Number.isFinite(Number(value)) &&
+          Number(value) >= 0),
+      'Enter a finite price of 0 or more, or leave blank.',
+    )
+    .optional(),
   category: identity.optional(),
   currency: z.string().max(11).optional(),
   date: z.string().refine(validDate, 'Select a valid departure date.'),

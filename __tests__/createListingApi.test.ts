@@ -19,6 +19,21 @@ import {
 } from '../test/fixtures/createListing';
 
 let post: jest.SpyInstance, get: jest.SpyInstance;
+test('Task 35 separate addresses use exact API keys and authoritative response', async () => {
+  post.mockResolvedValueOnce({ status: 201, data: { success: true, message: 'Created', data: { ...record, from_address: '12 Origin Street', to_address: '34 Destination Road' } } });
+  const result = await createListing({ ...draft, fromAddress: '12 Origin Street', toAddress: '34 Destination Road' });
+  expect(post.mock.calls[0][1]).toMatchObject({ from_address: '12 Origin Street', to_address: '34 Destination Road', from_area: 'Clifton', to_area: 'Deira' });
+  expect(result.from_address).toBe('12 Origin Street');
+});
+test('Task 35 missing address confirmation cannot silently report a saved address', async () => {
+  await expect(createListing({ ...draft, fromAddress: '12 Origin Street' })).rejects.toMatchObject({ kind: 'unknown' });
+  expect(listingSubmission()?.state).toBe('unknown');
+});
+test.each(['fromAddress', 'toAddress'] as const)('Task 35 %s optional whitespace and length validation', key => {
+  expect(createListingPayload({ ...draft, [key]: '   ' })).not.toHaveProperty(key === 'fromAddress' ? 'from_address' : 'to_address');
+  expect(() => createListingPayload({ ...draft, [key]: 'x'.repeat(256) })).toThrow();
+  expect(createListingPayload({ ...draft, [key]: 'x'.repeat(255) })).toHaveProperty(key === 'fromAddress' ? 'from_address' : 'to_address', 'x'.repeat(255));
+});
 beforeEach(async () => {
   useAuthStore
     .getState()
@@ -344,5 +359,62 @@ test.each(['logout', 'account', 'token', 'abort'])(
     expect(listingSubmission()?.state).not.toBe('confirmed');
     if (change === 'logout' || change === 'account')
       expect(listingSubmission()).toBeUndefined();
+  },
+);
+
+test.each(['', '0', '12.50', '.5', '1e2'])(
+  'optional price %s maps without losing zero',
+  weightPrice => {
+    const payload = createListingPayload({
+      ...draft,
+      description: 'Original description',
+      weightPrice,
+    });
+    expect(payload.description).toBe('Original description');
+    if (weightPrice) expect(payload.weight_price).toBe(Number(weightPrice));
+    else expect(payload).not.toHaveProperty('weight_price');
+    expect(payload.show_contact_info).toBe(0);
+  },
+);
+test.each(['-1', 'NaN', 'Infinity', '1e999', '1,2', '0x10'])(
+  'invalid optional price %s prevents submission',
+  weightPrice => {
+    expect(() => createListingPayload({ ...draft, weightPrice })).toThrow();
+    expect(post).not.toHaveBeenCalled();
+  },
+);
+test('description remains optional and enforces Laravel 10000 character boundary', () => {
+  expect(
+    createListingPayload({ ...draft, description: '' }),
+  ).not.toHaveProperty('description');
+  expect(
+    createListingPayload({ ...draft, description: 'x'.repeat(10000) })
+      .description,
+  ).toHaveLength(10000);
+  expect(() =>
+    createListingPayload({ ...draft, description: 'x'.repeat(10001) }),
+  ).toThrow();
+});
+
+test.each(['Parcel &amp; documents'])(
+  '201 accepts authoritative sanitized description %s without another POST',
+  async description => {
+    post.mockResolvedValueOnce({
+      status: 201,
+      data: {
+        success: true,
+        message: 'Created',
+        data: { ...record, description },
+      },
+    });
+    const result = await createListing({
+      ...draft,
+      description: 'Parcel & documents',
+    });
+    expect(result.description).toBe(description);
+    expect(result.id).toBe(record.id);
+    expect(result.status).toBe(0);
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(listingSubmission()?.state).toBe('confirmed');
   },
 );

@@ -1974,3 +1974,65 @@ test('guest Profile never requests private backend data even when real Profile A
     get.mockRestore();
   }
 });
+
+test.each([false, true])(
+  'Task 33 public Listings root entry/reselect replaces retained Details for authenticated=%s',
+  async member => {
+    jest
+      .spyOn(listingService, 'getListings')
+      .mockResolvedValue({
+        data: [],
+        meta: { current_page: 1, last_page: 1, total: 0 },
+      });
+    jest
+      .spyOn(detailsService, 'getListingDetails')
+      .mockRejectedValue(
+        new Error('Details unavailable in navigation fixture'),
+      );
+    await openPhase2GuestHome();
+    if (member) await authenticatePhase3();
+    const openDetails = async () => {
+      await Renderer.act(async () =>
+        navigationRef.navigate('AppDrawer', {
+          screen: 'MainTabs',
+          params: {
+            screen: 'ListingsStack',
+            params: { screen: 'ListingDetails', params: { listingId: '42' } },
+          },
+        }),
+      );
+      await settle();
+      expect(navigationRef.getCurrentRoute()?.name).toBe('ListingDetails');
+    };
+    const assertOnlyPublicRoot = () => {
+      const drawer = navigationRef
+        .getRootState()!
+        .routes.find(route => route.name === 'AppDrawer')!.state!;
+      const tabs = drawer.routes.find(route => route.name === 'MainTabs')!
+        .state!;
+      const listings = tabs.routes.find(
+        route => route.name === 'ListingsStack',
+      )!.state!;
+      expect(listings.index).toBe(0);
+      expect(listings.routes.map(route => route.name)).toEqual(['Listings']);
+      expect(navigationRef.getCurrentRoute()?.name).toBe('Listings');
+    };
+    // Cold nested Details has no public root underneath it.
+    await openDetails();
+    await press('Listings');
+    assertOnlyPublicRoot();
+    await openDetails();
+    await Renderer.act(async () =>
+      navigationRef.navigate('AppDrawer', {
+        screen: 'MainTabs',
+        params: { screen: 'HomeStack', params: { screen: 'Home' } },
+      }),
+    );
+    await settle();
+    await press('Listings');
+    assertOnlyPublicRoot();
+    // Android/root Back may leave the tab, but cannot reveal the removed Details.
+    if (navigationRef.canGoBack()) await back();
+    expect(navigationRef.getCurrentRoute()?.name).not.toBe('ListingDetails');
+  },
+);

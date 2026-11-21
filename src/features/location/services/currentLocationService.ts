@@ -3,8 +3,12 @@ import { placesService } from './placesService';
 import type { ResolvedAddress } from '../types/location';
 
 // One GPS + address flow shared by route forms and radius filters. No authentication.
-export async function detectCurrentLocation() {
-  const fix = await locationService.currentPosition();
+export async function detectCurrentLocation(
+  options?: Parameters<typeof locationService.currentPosition>[0],
+) {
+  const fix = await (options
+    ? locationService.currentPosition(options)
+    : locationService.currentPosition());
   const capturedAt = Date.now();
   if (
     !Number.isFinite(fix.latitude) ||

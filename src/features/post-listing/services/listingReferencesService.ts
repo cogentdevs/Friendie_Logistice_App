@@ -12,6 +12,7 @@ export type ReferenceKind =
   | 'currencies';
 export type ListingReference = { id: number; name: string; countryId?: number };
 export type ReferenceOption = {
+  shortName?: string;
   key: string;
   label: string;
   value: ListingReference | string;
@@ -89,6 +90,7 @@ export async function getListingReferences(
       options.push({
         key: String(raw.id),
         label: raw.name,
+        ...(raw.short_name ? { shortName: raw.short_name } : {}),
         value: {
           id: raw.id,
           name: raw.name,

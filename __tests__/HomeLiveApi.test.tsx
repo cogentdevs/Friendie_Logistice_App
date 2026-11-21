@@ -1,4 +1,6 @@
-﻿import React from 'react';
+// Live tests use the production selector, never the Jest-only catalogue mock.
+jest.unmock('../src/features/listings/development/staticMarketplace');
+import React from 'react';
 import Renderer, { ReactTestRenderer } from 'react-test-renderer';
 import { RefreshControl, TextInput } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -238,7 +240,7 @@ test('public Home DTO is retained on refresh failure, never replaced with fixtur
   expect(button('Open listing Traveller to Dubai')).toBeUndefined();
   expect(button('Retry Latest ads')).toBeDefined();
 });
-test('explicit static-testing mode makes no Home request, and live/static collections do not mix', async () => {
+test('legacy static-testing flags cannot replace live Home cards or their real navigation IDs', async () => {
   await mount();
   appConfig.staticMarketplaceEnabled = true;
   appConfig.staticTestingBuild = true;
@@ -246,8 +248,12 @@ test('explicit static-testing mode makes no Home request, and live/static collec
     tree.update(render());
   });
   await flush();
-  expect(button('Open listing Actual trip')).toBeUndefined();
-  expect(button('Open listing Traveller to Dubai')).toBeDefined();
+  expect(button('Open listing Actual trip')).toBeDefined();
+  expect(button('Open listing Traveller to Dubai')).toBeUndefined();
+  await press('Open listing Actual trip');
+  expect(nav.navigate).toHaveBeenLastCalledWith('ListingDetails', {
+    listingId: '703',
+  });
   expect(get).toHaveBeenCalledTimes(1);
   appConfig.staticMarketplaceEnabled = false;
   appConfig.staticTestingBuild = false;

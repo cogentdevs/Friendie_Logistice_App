@@ -101,13 +101,28 @@ test('network failure retains guest state', async () => {
   ).rejects.toMatchObject({ kind: 'network' });
   expect(useAuthStore.getState().status).toBe('guest');
 });
-test('startup restores securely saved login without calling another endpoint', async () => {
+test('startup validates securely saved login with current-account endpoint', async () => {
   jest
     .spyOn(secureStorage, 'getSession')
     .mockResolvedValue({ token: 'stored-token', user });
-  const get = jest.spyOn(apiClient, 'get');
+  jest.spyOn(secureStorage, 'getToken').mockResolvedValue('stored-token');
+  const get = jest
+    .spyOn(apiClient, 'get')
+    .mockResolvedValue({
+      status: 200,
+      data: {
+        success: true,
+        message: 'Account retrieved successfully.',
+        data: user,
+      },
+    });
   await authService.restore();
-  expect(get).not.toHaveBeenCalled();
+  expect(get).toHaveBeenCalledWith(
+    '/auth/me',
+    expect.objectContaining({
+      headers: { Authorization: 'Bearer stored-token' },
+    }),
+  );
   expect(useAuthStore.getState().user).toEqual(user);
 });
 test('guest logout without a token stays local', async () => {

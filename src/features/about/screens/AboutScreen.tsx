@@ -1,26 +1,23 @@
-import React from 'react';
+﻿import React, { PropsWithChildren } from 'react';
 import {
+  Image,
   Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
   View,
+  useWindowDimensions,
 } from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
 import { DrawerScreenProps } from '@react-navigation/drawer';
 import { CompositeScreenProps, useIsFocused } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
-  ClipboardList,
-  Globe2,
+  LockKeyhole,
   MessageCircle,
-  Package,
-  Plane,
-  Search,
-  Star,
+  CreditCard,
+  Check,
 } from 'lucide-react-native';
 import {
   DrawerParamList,
@@ -31,9 +28,28 @@ import { AppText } from '../../../components/ui/AppText';
 import { BrandLogo } from '../../../components/common/BrandLogo';
 import { colors } from '../../../theme';
 import { aboutContent } from '../content/aboutContent';
+import { aboutAssets, aboutLocations } from '../content/aboutAssets';
 import { getNativeAppVersion } from '../services/appMetadata';
-const stepIcons = [ClipboardList, Search, MessageCircle, Check];
-const featureIcons = [Package, Globe2, Star];
+
+const valueIcons = [LockKeyhole, MessageCircle, CreditCard, Check];
+function Section({ title, children }: PropsWithChildren<{ title: string }>) {
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHeading}>
+        <AppText
+          accessibilityRole="header"
+          variant="headingLG"
+          color={colors.navy}
+        >
+          {title}
+        </AppText>
+        <View style={styles.accent} />
+      </View>
+      {children}
+    </View>
+  );
+}
+
 export function AboutScreen({
   navigation,
 }: CompositeScreenProps<
@@ -41,6 +57,9 @@ export function AboutScreen({
   NativeStackScreenProps<RootStackParamList>
 >) {
   const focused = useIsFocused();
+  const { width, fontScale } = useWindowDimensions();
+  const wide = width >= 600 && fontScale <= 1.3;
+  const locationColumns = width >= 360 && fontScale <= 1.3;
   const version = getNativeAppVersion();
   const openLegal = (kind: 'privacy' | 'terms') =>
     navigation.navigate(
@@ -78,98 +97,126 @@ export function AboutScreen({
         </AppText>
       </View>
       <ScrollView contentContainerStyle={styles.content}>
-        <LinearGradient
-          colors={[colors.palePink, colors.softPink]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.hero}
-        >
-          <BrandLogo width={190} variant="color" />
-          <AppText
-            color={colors.navy}
-            accessibilityRole="header"
-            style={styles.headline}
-          >
-            {aboutContent.headline}
-          </AppText>
-          <AppText style={styles.description}>
-            {aboutContent.description}
-          </AppText>
-          <View style={styles.heroIcon}>
-            <Plane size={23} color={colors.primary} />
-          </View>
-        </LinearGradient>
-        {aboutContent.status === 'draft' && (
-          <AppText variant="caption" color={colors.primary}>
-            Draft company content � pending approval.
-          </AppText>
-        )}
-        <View style={styles.mission}>
-          <AppText
-            accessibilityRole="header"
-            color={colors.navy}
-            style={styles.sectionTitle}
-          >
-            Our Mission
-          </AppText>
-          <AppText style={styles.body}>{aboutContent.mission}</AppText>
+        <Section title="About Friendie Logistics">
+          <AppText style={styles.body}>{aboutContent.introduction}</AppText>
+          <Image
+            source={aboutAssets.introduction}
+            accessibilityLabel="Friendie Logistics air, sea and road transport illustration"
+            style={styles.aboutImage}
+            resizeMode="contain"
+          />
+        </Section>
+        <View style={styles.storyPanel}>
+          <Section title="What We Do">
+            <AppText style={styles.body}>{aboutContent.whatWeDo}</AppText>
+          </Section>
+          <Section title="Our Vision">
+            <AppText style={styles.body}>{aboutContent.vision}</AppText>
+          </Section>
         </View>
-        <AppText
-          accessibilityRole="header"
-          color={colors.navy}
-          style={styles.sectionTitle}
-        >
-          How It Works
-        </AppText>
-        <View style={styles.group}>
-          {aboutContent.steps.map((step, index) => {
-            const Icon = stepIcons[index];
-            return (
-              <View key={step.title} style={styles.card}>
-                <View style={styles.number}>
-                  <AppText color={colors.primary} style={styles.numberText}>
-                    {index + 1}
-                  </AppText>
-                </View>
-                <View style={styles.cardContent}>
-                  <View style={styles.stepHeading}>
-                    <Icon size={21} color={colors.primary} />
-                    <AppText color={colors.navy} style={styles.cardTitle}>
-                      {step.title}
-                    </AppText>
+        <Section title="Our Values">
+          <View style={styles.grid}>
+            {aboutContent.values.map((value, index) => {
+              const Icon = valueIcons[index];
+              return (
+                <View
+                  key={value.title}
+                  style={[styles.valueCard, wide ? styles.half : styles.full]}
+                >
+                  <View style={styles.valueIcon}>
+                    <Icon size={24} color={colors.primary} />
                   </View>
-                  <AppText style={styles.body}>{step.text}</AppText>
-                </View>
-              </View>
-            );
-          })}
-        </View>
-        <AppText
-          accessibilityRole="header"
-          color={colors.navy}
-          style={styles.sectionTitle}
-        >
-          Why Friendie Logistics?
-        </AppText>
-        <View style={styles.group}>
-          {aboutContent.features.map((feature, index) => {
-            const Icon = featureIcons[index];
-            return (
-              <View key={feature.title} style={styles.card}>
-                <View style={styles.featureIcon}>
-                  <Icon size={24} color={colors.primary} />
-                </View>
-                <View style={styles.cardContent}>
-                  <AppText color={colors.navy} style={styles.cardTitle}>
-                    {feature.title}
+                  <AppText variant="headingMD" color={colors.navy}>
+                    {value.title}
                   </AppText>
-                  <AppText style={styles.body}>{feature.text}</AppText>
+                  <AppText style={styles.body}>{value.text}</AppText>
+                </View>
+              );
+            })}
+          </View>
+        </Section>
+        <Section title="Get Involved">
+          <AppText style={styles.body}>{aboutContent.closing}</AppText>
+          <AppText style={styles.body}>{aboutContent.getInvolved}</AppText>
+          <View style={styles.steps}>
+            {aboutContent.steps.map((step, index) => (
+              <View key={step} style={styles.step}>
+                <AppText color={colors.primary} style={styles.stepNumber}>
+                  {String(index + 1).padStart(2, '0')}
+                </AppText>
+                <AppText color={colors.navy} style={styles.stepTitle}>
+                  {step}
+                </AppText>
+              </View>
+            ))}
+          </View>
+        </Section>
+        <Section title="Locations">
+          <View style={styles.grid}>
+            {aboutLocations.map(location => (
+              <View
+                key={location.label}
+                style={[
+                  styles.locationCard,
+                  locationColumns ? styles.half : styles.full,
+                ]}
+              >
+                <Image
+                  source={location.image}
+                  resizeMode="contain"
+                  accessibilityLabel={location.label + ' location photograph'}
+                  style={styles.locationImage}
+                />
+                <AppText color={colors.navy} style={styles.locationLabel}>
+                  {location.label}
+                </AppText>
+              </View>
+            ))}
+          </View>
+        </Section>
+        <Section title="Client Testimonials">
+          <View style={styles.grid}>
+            {aboutContent.testimonials.map((item, index) => (
+              <View
+                key={item.name}
+                style={[styles.testimonial, wide ? styles.half : styles.full]}
+              >
+                <Image
+                  source={aboutAssets.quote}
+                  style={styles.quote}
+                  resizeMode="contain"
+                  accessible={false}
+                  importantForAccessibility="no"
+                />
+                <AppText style={styles.body}>{item.text}</AppText>
+                <View style={styles.author}>
+                  <Image
+                    source={
+                      index === 0
+                        ? aboutAssets.alex
+                        : aboutAssets.otherTestimonial
+                    }
+                    accessibilityLabel={
+                      item.name + ' website testimonial portrait'
+                    }
+                    style={styles.avatar}
+                    resizeMode="contain"
+                  />
+                  <View style={styles.authorText}>
+                    <AppText color={colors.navy} style={styles.authorName}>
+                      {item.name}
+                    </AppText>
+                    <AppText variant="bodySmall">{item.role}</AppText>
+                  </View>
                 </View>
               </View>
-            );
-          })}
-        </View>
+            ))}
+          </View>
+        </Section>
         <View style={styles.footer}>
+          <View style={styles.footerBrand}>
+            <BrandLogo width={150} variant="color" />
+          </View>
           <AppText variant="caption" style={styles.version}>
             {version ? 'App version ' + version : 'App version unavailable'}
           </AppText>
@@ -184,9 +231,7 @@ export function AboutScreen({
               accessibilityLabel={link.label}
               accessibilityState={{ disabled: false }}
               style={styles.link}
-              onPress={() => {
-                openLegal(link.kind);
-              }}
+              onPress={() => openLegal(link.kind)}
             >
               <AppText color={colors.primary} style={styles.linkText}>
                 {link.label}
@@ -243,72 +288,97 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, lineHeight: 28, fontWeight: '700' },
   content: {
     width: '100%',
-    maxWidth: 640,
+    maxWidth: 720,
     alignSelf: 'center',
     padding: 20,
-    gap: 18,
+    gap: 32,
     paddingBottom: 32,
   },
-  hero: { borderRadius: 22, padding: 24, gap: 18, alignItems: 'center' },
-  headline: {
-    fontSize: 27,
-    lineHeight: 35,
-    fontWeight: '800',
-    textAlign: 'center',
+  section: { gap: 18 },
+  sectionHeading: { gap: 10 },
+  accent: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.primary,
   },
-  description: { textAlign: 'center', lineHeight: 23 },
-  heroIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+  body: { lineHeight: 26 },
+  aboutImage: {
+    width: '100%',
+    height: undefined,
+    aspectRatio: 640 / 426,
+    borderRadius: 18,
+  },
+  storyPanel: {
+    padding: 20,
+    gap: 28,
+    backgroundColor: colors.offWhite,
+    borderRadius: 20,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  half: { width: '47%' },
+  full: { width: '100%' },
+  valueCard: {
+    padding: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 18,
     backgroundColor: colors.white,
+    gap: 12,
+  },
+  valueIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: colors.softPink,
   },
-  mission: { gap: 12, paddingVertical: 6 },
-  sectionTitle: { fontSize: 21, lineHeight: 29, fontWeight: '700' },
-  body: { fontSize: 14, lineHeight: 23 },
-  group: { gap: 12 },
-  card: {
+  steps: { gap: 12, paddingTop: 6 },
+  step: {
     flexDirection: 'row',
-    gap: 14,
-    padding: 16,
+    alignItems: 'center',
+    padding: 18,
+    gap: 18,
+    borderRadius: 16,
+    backgroundColor: colors.softPink,
+  },
+  stepNumber: { fontSize: 28, lineHeight: 36, fontWeight: '700' },
+  stepTitle: { flex: 1, fontSize: 16, lineHeight: 24, fontWeight: '600' },
+  locationCard: {
+    overflow: 'hidden',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
-    shadowColor: colors.navy,
-    shadowOpacity: 0.04,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
   },
-  number: {
-    width: 36,
-    height: 36,
+  locationImage: { width: '100%', height: undefined, aspectRatio: 320 / 250 },
+  locationLabel: { padding: 14, fontWeight: '600' },
+  testimonial: {
+    padding: 20,
     borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.softPink,
+    backgroundColor: colors.offWhite,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 18,
   },
-  numberText: { fontWeight: '800', fontSize: 16 },
-  cardContent: { flex: 1, gap: 8 },
-  stepHeading: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
-  cardTitle: { fontSize: 16, lineHeight: 23, fontWeight: '700', flexShrink: 1 },
-  featureIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: colors.softPink,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  quote: { width: 28, height: 25, tintColor: colors.primary },
+  author: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  avatar: { width: 48, height: 48, borderRadius: 24 },
+  authorText: { flex: 1, gap: 2 },
+  authorName: { fontWeight: '700' },
   footer: {
-    paddingTop: 16,
+    paddingTop: 24,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
     gap: 8,
   },
+  footerBrand: { alignItems: 'center', paddingBottom: 8 },
   version: { textAlign: 'center', marginBottom: 6 },
   link: {
     minHeight: 48,

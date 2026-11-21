@@ -6,8 +6,20 @@ import { ApiError } from '../../../types/api';
 import { useAuthStore } from '../../../store/authStore';
 import { isUiPreviewActive } from '../../../store/developmentStore';
 import { demoMyListings } from '../development/demoMyListings';
-export const ownStatusSchema = z.enum(['active', 'completed', 'expired']);
-export type MyListingStatus = z.infer<typeof ownStatusSchema>;
+export const ownStatusSchema = z.enum([
+  'active',
+  'pending',
+  'completed',
+  'expired',
+]);
+export const myListingViewSchema = z.enum([
+  'all',
+  'active',
+  'pending',
+  'completed',
+  'expired',
+]);
+export type MyListingStatus = z.infer<typeof myListingViewSchema>;
 export const myListingSchema = listingSchema.extend({
   title: z.string().nullable(),
   category: z.string().nullable(),
@@ -34,6 +46,8 @@ const responseSchema = z.object({
     counts: z
       .object({
         active: count.optional(),
+        all: count.optional(),
+        pending: count.optional(),
         completed: count.optional(),
         expired: count.optional(),
       })
@@ -66,14 +80,15 @@ export async function getMyListings(
   page: number,
   signal?: AbortSignal,
 ): Promise<MyListingsPage> {
-  ownStatusSchema.parse(status);
+  myListingViewSchema.parse(status);
   z.number().int().positive().parse(page);
   if (
     isUiPreviewActive() &&
     useAuthStore.getState().status !== 'authenticated'
   ) {
     const all = demoMyListings.map(item => myListingSchema.parse(item));
-    const rows = all.filter(item => item.status === status),
+    const rows =
+        status === 'all' ? all : all.filter(item => item.status === status),
       size = 10;
     return {
       data: rows.slice((page - 1) * size, page * size),
@@ -97,7 +112,9 @@ export async function getMyListings(
   if (status === 'completed') throw new UnsupportedMyListingStatusError();
   const result = await getOwnListingsPage(
     page,
-    { status: status === 'active' ? 1 : 2 },
+    status === 'all'
+      ? {}
+      : { status: status === 'active' ? 1 : status === 'pending' ? 0 : 2 },
     signal,
   );
   if (
@@ -110,7 +127,8 @@ export async function getMyListings(
     data: result.items.map(row => ({
       id: row.id,
       ownerId: result.ownerId,
-      status,
+      status:
+        row.status === 0 ? 'pending' : row.status === 1 ? 'active' : 'expired',
       type: row.ad_type === 'Carring' ? 'carry' : 'send',
       title: row.title,
       category: null,

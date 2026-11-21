@@ -98,6 +98,8 @@ export async function loadListingEdit(
       ? row.currency!
       : undefined,
     from: location('from', fromCities),
+    ...(row.from_address != null ? { fromAddress: row.from_address } : {}),
+    ...(row.to_address != null ? { toAddress: row.to_address } : {}),
     to: location('to', toCities),
     date: row.departure_on ?? '',
     reachedOn: row.reached_on ?? '',
@@ -117,6 +119,8 @@ export function changedListingFields(
     weight: draft.weight.trim() ? Number(draft.weight) : null,
     from_area: draft.from?.area?.name.trim() || null,
     to_area: draft.to?.area?.name.trim() || null,
+    from_address: draft.fromAddress?.trim() || null,
+    to_address: draft.toAddress?.trim() || null,
   };
   // The form has no visibility control. Preserve the stored value by omission.
   const fields = intended;
@@ -126,10 +130,11 @@ export function changedListingFields(
       if (key === 'currency' && typeof previous === 'string')
         previous = previous.trim().toUpperCase();
       if (
-        (key === 'from_area' || key === 'to_area') &&
+        (key === 'from_area' || key === 'to_area' || key === 'from_address' || key === 'to_address') &&
         typeof previous === 'string'
       )
         previous = previous.trim() || null;
+      if ((key === 'from_address' || key === 'to_address') && previous === undefined) previous = null;
       return key !== 'show_contact_info' && value !== previous;
     }),
   );
@@ -186,7 +191,9 @@ export async function updateListing(
     if (
       result.status !== 200 ||
       !parsed.success ||
-      parsed.data.data.id !== context.original.id
+      parsed.data.data.id !== context.original.id ||
+      (Object.prototype.hasOwnProperty.call(payload, 'from_address') && parsed.data.data.from_address !== payload.from_address) ||
+      (Object.prototype.hasOwnProperty.call(payload, 'to_address') && parsed.data.data.to_address !== payload.to_address)
     )
       throw new ApiError('Update status could not be confirmed.', 'unknown');
     context.state = 'confirmed';

@@ -1,4 +1,18 @@
 /* eslint-env jest */
+// Legacy fixture-driven UI tests explicitly exercise catalogue examples here.
+// This mock is Jest-only; normal app builds can never activate those fixtures.
+// Real-runtime contract tests unmock this module to exercise the production gate.
+jest.mock('./src/features/listings/development/staticMarketplace', () => {
+  const { appConfig } = require('./src/constants/appConfig');
+  return {
+    ...jest.requireActual(
+      './src/features/listings/development/staticMarketplace',
+    ),
+    isStaticMarketplaceEnabled: () =>
+      (global.__DEV__ || appConfig.staticTestingBuild) &&
+      appConfig.staticMarketplaceEnabled,
+  };
+});
 require('react-native-gesture-handler/jestSetup');
 jest.mock(
   'react-native-safe-area-context',

@@ -24,6 +24,18 @@ const envelope = (row = record) => ({
   status: 200,
   data: { success: true, message: 'Listing updated successfully.', data: row },
 });
+test('Task 35 loaded addresses survive unrelated edits and explicit clear uses null', async () => {
+  context.original = { ...context.original, from_address: '12 Origin Street', to_address: '34 Destination Road' };
+  const current = {...draft, fromAddress: '12 Origin Street', toAddress: '34 Destination Road'};
+  expect(changedListingFields(context, {...current, title: 'Changed'})).toEqual({title: 'Changed'});
+  expect(changedListingFields(context, {...current, fromAddress: ''})).toEqual({from_address: null});
+});
+test('Task 35 owner details addresses load into editable form without exposing public fields', async () => {
+  context.state = 'confirmed';
+  get.mockImplementation(async (url, config) => url === '/customer/listings/123' ? envelope({...record, from_address: '12 Origin Street', to_address: '34 Destination Road'} as typeof record) : referenceResponse(url, config));
+  const loaded = await loadListingEdit('123');
+  expect(loaded.initial).toMatchObject({fromAddress: '12 Origin Street', toAddress: '34 Destination Road'});
+});
 beforeEach(async () => {
   useAuthStore
     .getState()

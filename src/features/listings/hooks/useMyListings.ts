@@ -25,7 +25,9 @@ export function useMyListings() {
       : auth === 'authenticated' && owner
       ? 'user:' + owner
       : 'guest';
-  const status = useMyListingsTabs(state => state.tabs[scope] ?? 'active');
+  const status = useMyListingsTabs(
+    state => state.tabs[scope] ?? (demo ? 'active' : 'all'),
+  );
   const query = useInfiniteQuery({
     // Real reads must not trigger legacy Dashboard metric invalidation on fetch.
     queryKey: [demo ? 'myListings' : 'myListings.read', scope, status],

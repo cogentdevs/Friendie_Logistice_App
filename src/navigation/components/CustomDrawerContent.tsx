@@ -58,7 +58,9 @@ export function CustomDrawerContent(props: DrawerContentComponentProps) {
     profile?.name?.trim() ||
     user?.name ||
     (previewActive ? 'UI Preview' : 'Guest');
-  const avatarUrl = profile?.avatarUrl || user?.avatarUrl || undefined;
+  const avatarUrl = profile
+    ? profile.avatarUrl ?? undefined
+    : user?.avatarUrl || undefined;
   const [failedAvatar, setFailedAvatar] = React.useState<string>();
   const avatarKey = `${user?.id ?? 'guest'}:${avatarUrl ?? ''}`;
   const verified = (profile?.verified ?? user?.verified) === true;

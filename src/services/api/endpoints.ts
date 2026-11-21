@@ -17,7 +17,7 @@ export const endpoints = {
   profile: '/customer/profile',
   profileAvatar: '/customer/profile/avatar',
   changePassword: '/customer/change-password',
-  me: '/user',
+  me: '/auth/me',
   listings: '/listings',
   myListings: '/customer/listings',
 } as const;

@@ -1,3 +1,4 @@
+// Jest-only fixture catalogue tests. Production runtime gating is tested unmocked in allBuildsLiveApi.test.ts.
 import { appConfig } from '../src/constants/appConfig';
 import { isStaticMarketplaceEnabled } from '../src/features/listings/development/staticMarketplace';
 import { homeService } from '../src/features/home/services/homeService';
@@ -33,7 +34,7 @@ afterEach(() => {
   useAuthStore.getState().clear();
   jest.restoreAllMocks();
 });
-test('guest and member receive the same existing catalogue without authentication or HTTP', async () => {
+test('Jest fixture mock gives guest and member the same catalogue without HTTP', async () => {
   appConfig.staticTestingBuild = true;
   const get = jest.spyOn(apiClient, 'get');
   const guestIdentity = useAuthStore.getState();
@@ -78,7 +79,7 @@ test('guest and member receive the same existing catalogue without authenticatio
   expect(await homeService.latest()).toEqual(guest[2]);
   expect(get).not.toHaveBeenCalled();
 });
-test('production runtime excludes fixtures even with development and release preview flags set', async () => {
+test('Jest fixture mock excludes fixtures outside its explicit development/testing context', async () => {
   jest.replaceProperty(
     globalThis as typeof globalThis & { __DEV__: boolean },
     '__DEV__',
@@ -112,7 +113,7 @@ test.each([
   ],
   ['minimum capacity', { weightKg: 20 }, 2],
 ])(
-  'guest public %s search uses the existing catalogue without login or HTTP',
+  'Jest-only public %s fixture search uses catalogue examples without HTTP',
   async (_label, filters, total) => {
     const get = jest.spyOn(apiClient, 'get');
     const result = await getListings(1, filters, { mode: 'worldwide' });
@@ -128,7 +129,7 @@ test.each([
   },
 );
 
-test('explicit STATIC_TESTING native build permits release-runtime browsing without login or HTTP', async () => {
+test('Jest-only native-testing fixture simulation permits fixture browsing without HTTP', async () => {
   jest.replaceProperty(
     globalThis as typeof globalThis & { __DEV__: boolean },
     '__DEV__',

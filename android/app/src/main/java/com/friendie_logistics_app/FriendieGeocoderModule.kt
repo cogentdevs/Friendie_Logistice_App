@@ -19,6 +19,16 @@ class FriendieGeocoderModule(context: ReactApplicationContext) : ReactContextBas
   override fun getName() = "FriendieGeocoder"
 
   @ReactMethod
+  fun isLocationEnabled(promise: Promise) {
+    try {
+      val manager = reactApplicationContext.getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
+      val enabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) manager.isLocationEnabled
+        else manager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) || manager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+      promise.resolve(enabled)
+    } catch (_: Exception) { promise.resolve(false) }
+  }
+
+  @ReactMethod
   fun reverse(latitude: Double, longitude: Double, promise: Promise) {
     if (!latitude.isFinite() || !longitude.isFinite() || latitude !in -90.0..90.0 || longitude !in -180.0..180.0) {
       promise.reject("INVALID_POINT", "The location point is invalid.")
@@ -51,6 +61,10 @@ class FriendieGeocoderModule(context: ReactApplicationContext) : ReactContextBas
           put("countryCode", address.countryCode?.uppercase(Locale.ROOT))
           put("city", address.locality)
           put("area", address.subLocality)
+          // A city/country-only result must never masquerade as a street address.
+          if (!address.thoroughfare.isNullOrBlank()) {
+            put("streetAddress", address.getAddressLine(0)?.takeIf { it.length <= 255 })
+          }
         }
         promise.resolve(result)
       }

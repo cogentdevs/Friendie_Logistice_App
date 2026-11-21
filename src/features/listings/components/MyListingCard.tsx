@@ -15,6 +15,8 @@ export const MyListingCard = memo(function MyListingCardView({
   const statusLabel =
     item.status === 'active'
       ? 'Active'
+      : item.status === 'pending'
+      ? 'Pending'
       : item.status === 'completed'
       ? 'Completed'
       : 'Expired';

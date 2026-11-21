@@ -73,6 +73,8 @@ beforeEach(() => {
     .getState()
     .setUser({ id: 8, name: 'Member', email: 'm@example.test' });
   useMyListingsTabs.getState().clear();
+  // Existing scenarios explicitly exercise the preserved Active view.
+  useMyListingsTabs.getState().select('user:8', 'active');
 });
 afterEach(async () => {
   await Renderer.act(async () => {
@@ -85,7 +87,7 @@ test('status tabs filter requests, show real counts and preserve selection on re
   const get = jest
     .spyOn(service, 'getMyListings')
     .mockImplementation(async status => ({
-      data: [{ ...item, status }],
+      data: [{ ...item, status: status === 'all' ? 'active' : status }],
       meta: {
         current_page: 1,
         last_page: 1,
@@ -191,7 +193,13 @@ test('same-account tab state reuses cached pages and account switching/logout ca
   const get = jest
     .spyOn(service, 'getMyListings')
     .mockImplementation(async status => ({
-      data: [{ ...item, status, ownerId: useAuthStore.getState().user!.id }],
+      data: [
+        {
+          ...item,
+          status: status === 'all' ? 'active' : status,
+          ownerId: useAuthStore.getState().user!.id,
+        },
+      ],
       meta: { current_page: 1, last_page: 1, total: 1 },
     }));
   await mount(30000);
@@ -265,4 +273,30 @@ test('real Axios adapter data renders existing Carry and Send cards without usin
   } finally {
     apiClient.defaults.adapter = original;
   }
+});
+
+test('default All and explicit Pending render the authoritative Pending card and preserve Active access', async () => {
+  useMyListingsTabs.getState().clear();
+  const pending = { ...item, id: 42, status: 'pending' as const };
+  const get = jest
+    .spyOn(service, 'getMyListings')
+    .mockImplementation(async view => ({
+      data: view === 'active' ? [item] : [pending],
+      meta: { current_page: 1, last_page: 1, total: 1 },
+    }));
+  await mount();
+  expect(get.mock.calls[0][0]).toBe('all');
+  expect(tree.root.findByType(FlatList).props.data[0]).toMatchObject({
+    id: 42,
+    status: 'pending',
+  });
+  expect(
+    tree.root.findAll(node => node.props.children === 'Pending').length,
+  ).toBeGreaterThan(0);
+  await press('Pending listings');
+  expect(get.mock.calls.at(-1)![0]).toBe('pending');
+  expect(tree.root.findByType(FlatList).props.data[0].status).toBe('pending');
+  await press('Active listings');
+  expect(get.mock.calls.at(-1)![0]).toBe('active');
+  expect(tree.root.findByType(FlatList).props.data[0].status).toBe('active');
 });

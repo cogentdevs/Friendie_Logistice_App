@@ -41,9 +41,10 @@ export function CustomTabBar({
   if (
     !preview &&
     (active.name === 'HomeStack' || active.name === 'ListingsStack') &&
-    ['Search', 'Filters', 'Results', 'ListingDetails', 'Listings'].includes(
-      getFocusedRouteNameFromRoute(active) ?? '',
-    )
+    (active.name === 'ListingsStack'
+      ? ['Filters']
+      : ['Search', 'Filters', 'Results', 'ListingDetails', 'Listings']
+    ).includes(getFocusedRouteNameFromRoute(active) ?? '')
   )
     return null;
   return (
@@ -76,6 +77,14 @@ export function CustomTabBar({
                 canPreventDefault: true,
               });
               if (event.defaultPrevented) return;
+              if (route.name === 'ListingsStack') {
+                // Reset this child only: cold private Details may be index 0,
+                // so merely navigating to Listings would leave Details beneath it.
+                navigation.navigate('ListingsStack', {
+                  state: { index: 0, routes: [{ name: 'Listings' }] },
+                });
+                return;
+              }
               if (preview) {
                 const entry: Record<string, string> = {
                   HomeStack: 'Home',

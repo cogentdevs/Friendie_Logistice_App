@@ -1,10 +1,16 @@
 import React from 'react';
 import Renderer, { ReactTestRenderer } from 'react-test-renderer';
-import { TextInput } from 'react-native';
+import {
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  TextInput,
+} from 'react-native';
 import { ChatScreen } from '../src/features/messages/screens/ChatScreen';
 import { useChat } from '../src/features/messages/hooks/useChat';
 import { navigationRef } from '../src/navigation/navigationRef';
 import { ApiError } from '../src/types/api';
+import { KeyboardScrollView } from '../src/components/layout/KeyboardScrollView';
 jest.mock('../src/features/messages/hooks/useChat', () => ({
   useChat: jest.fn(),
 }));
@@ -178,4 +184,20 @@ test('unauthorized conversation hides content and disables sending', async () =>
       node => node.props.children === 'Conversation unavailable',
     ).length,
   ).toBeGreaterThan(0);
+});
+
+test('chat keeps the list and composer together in keyboard avoidance without a nested ScrollView', async () => {
+  jest.replaceProperty(Platform, 'OS', 'android');
+  await mount();
+  const avoid = tree.root.findByType(KeyboardAvoidingView);
+  expect(avoid.props.behavior).toBe('height');
+  expect(avoid.props.keyboardVerticalOffset).toBe(56);
+  expect(avoid.findAllByType(FlatList)).toHaveLength(1);
+  expect(tree.root.findAllByType(KeyboardScrollView)).toHaveLength(0);
+  const draft = avoid
+    .findAllByType(TextInput)
+    .find(node => node.props.accessibilityLabel === 'Message draft')!;
+  expect(draft.props.value).toBe('Hello');
+  expect(draft.props.multiline).toBe(true);
+  expect(state.send).not.toHaveBeenCalled();
 });

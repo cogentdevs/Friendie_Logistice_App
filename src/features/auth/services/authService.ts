@@ -3,15 +3,22 @@ import { apiClient } from '../../../services/api/apiClient';
 import { endpoints } from '../../../services/api/endpoints';
 import { secureStorage } from '../../../services/storage/secureStorage';
 import { useAuthStore } from '../../../store/authStore';
-import { ApiResponse, ApiError } from '../../../types/api';
+import { isUiPreviewActive } from '../../../store/developmentStore';
+import { ApiError } from '../../../types/api';
 import { loginSchema, LoginInput } from '../schemas/loginSchema';
-import { loginResponseSchema, userSchema } from '../schemas/sessionSchema';
+import {
+  loginResponseSchema,
+  currentAccountResponseSchema,
+} from '../schemas/sessionSchema';
 import { uiTestingLogin } from '../development/uiTestingLogin';
 import { logoutApiService } from './logoutApiService';
 let loginController: AbortController | undefined;
 let loginFlight: Promise<void> | undefined;
 let logoutFlight: Promise<void> | undefined;
 let sessionRevision = 0;
+let restoreFlight: Promise<void> | undefined;
+let restoreSignal: AbortSignal | undefined;
+let pendingVerification = false;
 export function cancelLoginAttempt() {
   loginController?.abort();
 }
@@ -21,6 +28,8 @@ export const authService = {
       return Promise.reject(
         new ApiError('Sign in is already in progress.', 'cancelled'),
       );
+    sessionRevision++;
+    pendingVerification = false;
     const controller = new AbortController();
     loginController = controller;
     const abort = () => controller.abort();
@@ -112,52 +121,116 @@ export const authService = {
       .catch(() => {});
     return operation;
   },
-  async hydrate(signal?: AbortSignal) {
+  async hydrate(
+    signal?: AbortSignal,
+    expectedToken?: string,
+    expectedId?: number,
+  ) {
     const revision = sessionRevision;
-    const { data } = await apiClient.get<ApiResponse<unknown>>(endpoints.me, {
+    const owner = useAuthStore.getState().user;
+    const token = expectedToken ?? (await secureStorage.getToken());
+    const current = () =>
+      !signal?.aborted &&
+      revision === sessionRevision &&
+      !logoutFlight &&
+      !isUiPreviewActive() &&
+      useAuthStore.getState().user === owner;
+    if (!current())
+      throw new ApiError('Session restoration cancelled.', 'cancelled');
+    if (!token) throw new ApiError('No stored session.', 'unauthorized', 401);
+    const response = await apiClient.get<unknown>(endpoints.me, {
       signal,
+      headers: { Authorization: `Bearer ${token}` },
     });
-    if (signal?.aborted || revision !== sessionRevision || logoutFlight)
+    const stored = await secureStorage.getToken();
+    if (!current() || stored !== token)
       throw new ApiError('Session restoration cancelled.', 'cancelled');
-    useAuthStore.getState().setUser(userSchema.parse(data.data));
+    const parsed = currentAccountResponseSchema.safeParse(response.data);
+    if (
+      response.status !== 200 ||
+      !parsed.success ||
+      (expectedId !== undefined && parsed.data.data.id !== expectedId)
+    )
+      throw new ApiError('Invalid account response.', 'unknown');
+    useAuthStore.getState().setUser(parsed.data.data);
   },
-  async restore(signal?: AbortSignal) {
+  restore(signal?: AbortSignal): Promise<void> {
+    if (restoreFlight && !restoreSignal?.aborted) return restoreFlight;
     const revision = sessionRevision;
-    if (logoutFlight) return;
-    if (appConfig.loginApiEnabled) {
-      // Restore a previously server-established session, not a fresh server validation.
-      // No /me endpoint is integrated in this phase; protected API 401s invalidate it.
+    const owner = useAuthStore.getState().user;
+    const current = () =>
+      !signal?.aborted &&
+      revision === sessionRevision &&
+      !logoutFlight &&
+      useAuthStore.getState().user === owner;
+    const operation = (async () => {
+      if (logoutFlight || loginFlight || isUiPreviewActive()) return;
       const session = await secureStorage.getSession();
-      if (signal?.aborted || revision !== sessionRevision || logoutFlight)
+      if (!current()) {
+        if (
+          session?.token &&
+          signal?.aborted &&
+          revision === sessionRevision &&
+          !logoutFlight &&
+          useAuthStore.getState().user === owner
+        )
+          pendingVerification = true;
         throw new ApiError('Session restoration cancelled.', 'cancelled');
-      if (session?.token) useAuthStore.getState().setUser(session.user);
-      else useAuthStore.getState().clear();
-      return;
-    }
-    const token = await secureStorage.getToken();
-    if (signal?.aborted || revision !== sessionRevision || logoutFlight)
-      throw new ApiError('Session restoration cancelled.', 'cancelled');
-    if (!token) {
-      useAuthStore.getState().clear();
-      return;
-    }
-    try {
-      if (!appConfig.apiBaseUrl || !appConfig.authApiVerified)
-        throw new ApiError(
-          'Session validation is currently unavailable.',
-          'unknown',
-        );
-      await authService.hydrate(signal);
-    } catch (error) {
-      if (error instanceof ApiError && error.kind === 'unauthorized')
+      }
+      if (!session?.token) {
+        pendingVerification = false;
         useAuthStore.getState().clear();
-      if (!(error instanceof ApiError && error.kind === 'unauthorized'))
+        return;
+      }
+      try {
+        await authService.hydrate(signal, session.token, session.user.id);
+        pendingVerification = false;
+      } catch (error) {
+        if (!current()) {
+          // Startup's bounded cancellation leaves credentials unverified, not invalid.
+          if (
+            signal?.aborted &&
+            revision === sessionRevision &&
+            !logoutFlight &&
+            useAuthStore.getState().user === owner
+          )
+            pendingVerification = true;
+          throw new ApiError('Session restoration cancelled.', 'cancelled');
+        }
+        if (error instanceof ApiError && error.kind === 'unauthorized') {
+          await secureStorage.removeTokenIfCurrent(session.token, current);
+          if (current()) useAuthStore.getState().clear();
+          pendingVerification = false;
+          return;
+        }
+        pendingVerification = !(
+          error instanceof ApiError && error.kind === 'cancelled'
+        );
+        if (current()) useAuthStore.getState().clear();
         throw error;
-    }
+      }
+    })();
+    restoreFlight = operation;
+    restoreSignal = signal;
+    operation
+      .finally(() => {
+        if (restoreFlight === operation) restoreFlight = undefined;
+      })
+      .catch(() => {});
+    return operation;
+  },
+  async retryRestore() {
+    if (
+      pendingVerification &&
+      !isUiPreviewActive() &&
+      useAuthStore.getState().status === 'guest'
+    )
+      await authService.restore();
   },
   logout(): Promise<void> {
     if (logoutFlight) return logoutFlight;
     sessionRevision++;
+    pendingVerification = false;
     cancelLoginAttempt();
     const operation = (async () => {
       await loginFlight?.catch(() => {});

@@ -17,6 +17,9 @@ import {
 import { displayDate } from '../../search/types/search';
 import { useCreateListing } from '../hooks/useCreateListing';
 import { ListingImagePreview } from '../components/ListingImageInput';
+import { navigationRef } from '../../../navigation/navigationRef';
+import { useMyListingsTabs } from '../../listings/store/myListingsStore';
+import { useAuthStore } from '../../../store/authStore';
 type Props = NativeStackScreenProps<PostStackParamList, 'ListingReview'>;
 export function ListingReviewScreen(props: Props) {
   return props.route?.params?.editListingId ? (
@@ -32,9 +35,12 @@ function destination(navigation: Props['navigation'], id: number) {
   });
 }
 function CreateReview(props: Props) {
-  const create = useCreateListing(useIsFocused(), id =>
-    destination(props.navigation, id),
-  );
+  const create = useCreateListing(useIsFocused(), () => {
+    const user = useAuthStore.getState().user;
+    if (!user || !navigationRef.isReady()) return;
+    useMyListingsTabs.getState().select('user:' + user.id, 'all');
+    navigationRef.navigate('AppDrawer', { screen: 'MyListings' });
+  });
   return <ReviewContent {...props} create={create} action={create} />;
 }
 function EditReview(props: Props) {
@@ -81,6 +87,14 @@ function ReviewContent({
               {values.type === 'carry' ? 'Carry Parcel' : 'Send Parcel'}
             </AppText>
             <AppText>{values.title}</AppText>
+            {!!values.description?.trim() && (
+              <AppText>{values.description}</AppText>
+            )}
+            {!!values.weightPrice?.trim() && (
+              <AppText>
+                Price per KG: {values.weightPrice} {values.currency}
+              </AppText>
+            )}
             <AppText>
               {values.category?.name} · {values.currency}
             </AppText>
@@ -89,7 +103,9 @@ function ReviewContent({
               {' \u2192 '}
               {listingLocationLabel(values.to!)}
             </AppText>
-            <AppText>Departure: {displayDate(values.date)}</AppText>
+              {!!values.fromAddress?.trim() && <AppText>From Address: {values.fromAddress}</AppText>}
+              {!!values.toAddress?.trim() && <AppText>To Address: {values.toAddress}</AppText>}
+              <AppText>Departure: {displayDate(values.date)}</AppText>
             <AppText>Arrival: {displayDate(values.reachedOn!)}</AppText>
             {!!values.weight.trim() && (
               <AppText>{Number(values.weight)} kg</AppText>

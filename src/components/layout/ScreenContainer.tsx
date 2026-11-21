@@ -8,6 +8,7 @@ import {
   ScrollViewProps,
 } from 'react-native';
 import { colors, spacing } from '../../theme';
+import { KeyboardScrollView } from './KeyboardScrollView';
 export function ScreenContainer({
   children,
   scroll = true,
@@ -27,7 +28,7 @@ export function ScreenContainer({
   onScroll?: ScrollViewProps['onScroll'];
 }>) {
   return scroll ? (
-    <ScrollView
+    <KeyboardScrollView
       ref={scrollRef}
       onLayout={onLayout}
       onContentSizeChange={onContentSizeChange}
@@ -37,7 +38,7 @@ export function ScreenContainer({
       keyboardShouldPersistTaps="handled"
     >
       {children}
-    </ScrollView>
+    </KeyboardScrollView>
   ) : (
     <View style={[styles.root, { backgroundColor }, styles.content, style]}>
       {children}

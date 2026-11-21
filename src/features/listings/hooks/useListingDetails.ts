@@ -1,4 +1,5 @@
 import { isListingDemoMode } from '../development/demoListings';
+import { getDemoMyListing } from '../development/demoMyListings';
 import { useQuery } from '@tanstack/react-query';
 import { useIsFocused } from '@react-navigation/native';
 import {
@@ -34,10 +35,19 @@ export function useListingDetails(id: string, ownListing = false) {
       ? ['listingDetails', id, 'demo']
       : ['listingDetails', id, userId ?? 'guest'],
     enabled: focused && (!ownListing || privateRead || demoOwner),
-    queryFn: ({ signal }) =>
-      ownListing && !demoOwner
+    queryFn: ({ signal }) => {
+      // Private preview records must never become public API IDs when the
+      // public catalogue switches to real data in every build.
+      if (ownListing && demoOwner) {
+        const record = getDemoMyListing(id);
+        if (!record)
+          throw new ApiError('Demo listing not found.', 'not-found', 404);
+        return record;
+      }
+      return ownListing
         ? getOwnListingDetails(id, signal)
-        : getListingDetails(id, signal),
+        : getListingDetails(id, signal);
+    },
     structuralSharing: false,
     staleTime: 0,
     retry: (failures, error) =>

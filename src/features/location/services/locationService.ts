@@ -22,6 +22,19 @@ export class LocationError extends Error {
 }
 export const locationService = {
   openSettings,
+  async hasForegroundPermission() {
+    const fine = await check(
+      Platform.OS === 'ios'
+        ? PERMISSIONS.IOS.LOCATION_WHEN_IN_USE
+        : PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION,
+    );
+    return (
+      fine === RESULTS.GRANTED ||
+      (Platform.OS === 'android' &&
+        (await check(PERMISSIONS.ANDROID.ACCESS_COARSE_LOCATION)) ===
+          RESULTS.GRANTED)
+    );
+  },
   async requestForegroundPermission() {
     const permission =
       Platform.OS === 'ios'
@@ -43,8 +56,14 @@ export const locationService = {
     if (result !== RESULTS.GRANTED && result !== RESULTS.LIMITED)
       throw new LocationError('denied');
   },
-  async currentPosition() {
-    await locationService.requestForegroundPermission();
+  async currentPosition(options?: {
+    requestPermission?: boolean;
+    showLocationDialog?: boolean;
+  }) {
+    if (options?.requestPermission === false) {
+      if (!(await locationService.hasForegroundPermission()))
+        throw new LocationError('denied');
+    } else await locationService.requestForegroundPermission();
     if (Platform.OS === 'ios') {
       const authorization = await Geolocation.requestAuthorization('whenInUse');
       if (authorization === 'disabled') throw new LocationError('disabled');
@@ -81,7 +100,7 @@ export const locationService = {
           enableHighAccuracy: true,
           timeout: 15000,
           maximumAge: 0,
-          showLocationDialog: true,
+          showLocationDialog: options?.showLocationDialog ?? true,
         },
       ),
     );
