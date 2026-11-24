@@ -1,5 +1,13 @@
 import { z } from 'zod';
 import { validDate } from '../../search/types/search';
+import { parseManualListingPin } from './manualListingPin';
+const manualPin = z.object({
+  text: z.string(),
+  intent: z.enum(['unchanged', 'replace', 'clear']),
+}).superRefine((value, context) => {
+  const result = parseManualListingPin(value.text);
+  if (!result.valid) context.addIssue({ code: 'custom', path: ['text'], message: result.error });
+});
 const identity = z.object({
   id: z.number().int().min(1).max(2147483647),
   name: z.string().min(1),
@@ -21,6 +29,8 @@ export const listingLocationLabel = (value: ListingLocation) =>
     .filter(Boolean)
     .join(', ');
 const common = {
+  fromPin: manualPin.optional(),
+  toPin: manualPin.optional(),
   fromAddress: z.string().max(255).optional(),
   toAddress: z.string().max(255).optional(),
   from: listingLocationSchema.optional(),

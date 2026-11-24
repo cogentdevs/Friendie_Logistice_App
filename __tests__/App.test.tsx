@@ -598,7 +598,9 @@ test('hardware Back from direct Global Reach restores Verified and its preceding
   }
 });
 
-test('Home dashboard uses the real first name and routes every action through existing navigators', async () => {
+// Keep independent dashboard destinations inside Jest's unchanged per-test budget.
+// Each case still mounts the real navigators and validates the return journey.
+async function mountDashboardMember() {
   await mountGuest();
   await Renderer.act(async () => {
     await establishNavigationSession({
@@ -616,7 +618,23 @@ test('Home dashboard uses the real first name and routes every action through ex
         node.props.children.includes('Ayesha'),
     ).length,
   ).toBeGreaterThan(0);
-  const returnHome = async () => {
+}
+
+test.each([
+  ['Notifications', 'Notifications'],
+  ['Open profile', 'Profile'],
+  ['Send Parcel', 'SendParcel'],
+  ['Carry Parcel', 'CarryParcel'],
+  ['Open Listings', 'Listings'],
+  ['Open Saved', 'SavedListings'],
+  ['Open Messages', 'Conversations'],
+  ['Open Reviews', 'MyReviews'],
+])(
+  'Home dashboard routes %s through existing navigators',
+  async (label, route) => {
+    await mountDashboardMember();
+    await press(label);
+    expect(navigationRef.getCurrentRoute()?.name).toBe(route);
     await Renderer.act(async () => {
       navigationRef.navigate('AppDrawer', {
         screen: 'MainTabs',
@@ -624,21 +642,13 @@ test('Home dashboard uses the real first name and routes every action through ex
       });
     });
     await settle();
-  };
-  for (const [label, route] of [
-    ['Notifications', 'Notifications'],
-    ['Open profile', 'Profile'],
-    ['Send Parcel', 'SendParcel'],
-    ['Carry Parcel', 'CarryParcel'],
-    ['Open Listings', 'Listings'],
-    ['Open Saved', 'SavedListings'],
-    ['Open Messages', 'Conversations'],
-    ['Open Reviews', 'MyReviews'],
-  ]) {
-    await press(label);
-    expect(navigationRef.getCurrentRoute()?.name).toBe(route);
-    await returnHome();
-  }
+    expect(navigationRef.getCurrentRoute()?.name).toBe('Home');
+  },
+);
+
+test('Home dashboard preserves the real first name, search filters and location directory navigation', async () => {
+  await mountDashboardMember();
+  const home = () => tree!.root.findByType(HomeScreen);
   await Renderer.act(async () => {
     home()
       .findAllByType(TextInput)

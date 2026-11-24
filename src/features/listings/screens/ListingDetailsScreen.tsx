@@ -59,6 +59,8 @@ import { GradientButton } from '../../../components/ui/GradientButton';
 import { colors } from '../../../theme';
 import { ApiError } from '../../../types/api';
 import { useAuthStore } from '../../../store/authStore';
+import { isVerifiedOwnedListing } from '../services/ownListingDetailsService';
+import { formatManualListingPin } from '../../post-listing/types/manualListingPin';
 import { useListingDetails } from '../hooks/useListingDetails';
 import {
   permittedPhone,
@@ -422,6 +424,31 @@ function DetailsContent({
   const unavailable =
     query.error instanceof ApiError &&
     [404, 410].includes(query.error.status ?? 0);
+  const ownerPins =
+    privateRead &&
+    detail &&
+    'backend' in detail &&
+    isVerifiedOwnedListing(detail.backend)
+      ? (['from', 'to'] as const).flatMap(side => {
+          const latitude = detail.backend[`${side}_latitude`];
+          const longitude = detail.backend[`${side}_longitude`];
+          const value =
+            typeof latitude === 'number' && typeof longitude === 'number'
+              ? formatManualListingPin({ latitude, longitude })
+              : '';
+          return value
+            ? [
+                {
+                  label:
+                    side === 'from' ? 'From Location Pin' : 'To Location Pin',
+                  value,
+                  icon: MapPin,
+                  selectable: true,
+                },
+              ]
+            : [];
+        })
+      : [];
   const rows = detail
     ? [
         {
@@ -456,6 +483,7 @@ function DetailsContent({
             : detail.category || 'Not provided',
           icon: Package,
         },
+        ...ownerPins,
       ]
     : [];
   return (
@@ -647,23 +675,32 @@ function DetailsContent({
               </Pressable>
             </View>
             <View style={styles.detailCard}>
-              {rows.map(({ label, value, icon: Icon }, index) => (
-                <View
-                  key={label}
-                  style={[
-                    styles.row,
-                    index < rows.length - 1 && styles.divider,
-                  ]}
-                >
-                  <Icon size={21} color={colors.primary} />
-                  <View style={styles.rowText}>
-                    <AppText variant="caption">{label}</AppText>
-                    <AppText color={colors.navy} style={styles.value}>
-                      {value}
-                    </AppText>
+              {rows.map((row, index) => {
+                const { label, value, icon: Icon } = row;
+                return (
+                  <View
+                    key={label}
+                    style={[
+                      styles.row,
+                      index < rows.length - 1 && styles.divider,
+                    ]}
+                  >
+                    <Icon size={21} color={colors.primary} />
+                    <View style={styles.rowText}>
+                      <AppText variant="caption">{label}</AppText>
+                      <AppText
+                        {...('selectable' in row && row.selectable
+                          ? { selectable: true }
+                          : {})}
+                        color={colors.navy}
+                        style={styles.value}
+                      >
+                        {value}
+                      </AppText>
+                    </View>
                   </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
             <AppText
               accessibilityRole="header"

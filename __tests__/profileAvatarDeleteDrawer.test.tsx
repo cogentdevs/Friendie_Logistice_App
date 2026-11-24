@@ -1,5 +1,7 @@
 import React from 'react';
 import Renderer from 'react-test-renderer';
+import { Image } from 'react-native';
+import { UserRound } from 'lucide-react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CustomDrawerContent } from '../src/navigation/components/CustomDrawerContent';
 import { AppAvatar } from '../src/components/ui/AppAvatar';
@@ -67,4 +69,53 @@ test('another account cached profile cannot provide the Drawer avatar', async ()
   });
   await mount();
   expect(tree.root.findByType(AppAvatar).props.uri).toBe(user.avatarUrl);
+});
+test('verified backend placeholder and image errors render the existing person icon at Drawer size', async () => {
+  client.setQueryData(['profile', 8], {
+    ...user,
+    avatarUrl: 'https://example.test/frontend/img/profiles/avatar.jpg',
+  });
+  await mount();
+  expect(tree.root.findAllByType(Image)).toHaveLength(0);
+  expect(tree.root.findByType(AppAvatar).props.size).toBe(64);
+  expect(tree.root.findByType(AppAvatar).findAllByType(UserRound)).toHaveLength(
+    1,
+  );
+  await Renderer.act(async () => {
+    client.setQueryData(['profile', 8], {
+      ...user,
+      avatarUrl: 'https://example.test/uploaded.jpg',
+    });
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+  });
+  await Renderer.act(async () => tree.root.findByType(Image).props.onError());
+  expect(tree.root.findAllByType(Image)).toHaveLength(0);
+  expect(tree.root.findByType(AppAvatar).findAllByType(UserRound)).toHaveLength(
+    1,
+  );
+});
+test('account switching and logout cannot restore the previous account avatar or its late error', async () => {
+  await mount();
+  const oldError = tree.root.findByType(Image).props.onError;
+  await Renderer.act(async () =>
+    useAuthStore
+      .getState()
+      .setUser({
+        ...user,
+        id: 9,
+        avatarUrl: 'https://example.test/new-upload.jpg',
+      }),
+  );
+  expect(tree.root.findByType(Image).props.source.uri).toBe(
+    'https://example.test/new-upload.jpg',
+  );
+  await Renderer.act(async () => oldError());
+  expect(tree.root.findByType(Image).props.source.uri).toBe(
+    'https://example.test/new-upload.jpg',
+  );
+  await Renderer.act(async () => useAuthStore.getState().clear());
+  expect(tree.root.findAllByType(Image)).toHaveLength(0);
+  expect(tree.root.findByType(AppAvatar).findAllByType(UserRound)).toHaveLength(
+    1,
+  );
 });

@@ -371,3 +371,67 @@ test('already-enabled automatic GPS fills only real origin IDs and preserves des
   expect(useListingDraft.getState().values).toMatchObject({ from: { country: createListingDraft.from!.country, city: createListingDraft.from!.city, source: 'api', area: { name: 'Detected area' } }, to: createListingDraft.to, weightPrice: '0' });
   expect(post).not.toHaveBeenCalled();
 });
+
+test('manual pins use independent optional paste inputs, inline blur validation and local Clear', async () => {
+  useListingDraft.getState().update(createListingDraft);
+  await mount();
+  const input = (side: string) => tree.root.findAllByType(TextInput).find(node => node.props.accessibilityLabel === `${side} Location Pin (Optional)`)!;
+  expect(input('From').props.keyboardType).toBe('default');
+  expect(input('From').props.contextMenuHidden).not.toBe(true);
+  expect(input('To').props.value).toBe('');
+  await Renderer.act(async () => input('From').props.onChangeText('0, 0'));
+  await Renderer.act(async () => input('To').props.onChangeText('-33, 151'));
+  await press('Clear from location pin');
+  expect(useListingDraft.getState().values.fromPin).toEqual({ text: '', intent: 'clear' });
+  expect(useListingDraft.getState().values.toPin?.text).toBe('-33, 151');
+  await Renderer.act(async () => input('From').props.onChangeText('91,0'));
+  await Renderer.act(async () => input('From').props.onBlur());
+  expect(tree.root.findAll(node => node.props.children === 'Latitude must be -90 to 90 and longitude -180 to 180.').length).toBeGreaterThan(0);
+  await press('Continue');
+  expect(navigation.navigate).not.toHaveBeenCalledWith('ListingReview');
+  await press('Clear from location pin');
+  await press('Continue');
+  expect(navigation.navigate).toHaveBeenCalledWith('ListingReview');
+});
+
+test('actual geography changes clear only that pin; same IDs and unrelated changes preserve pins', async () => {
+  useListingDraft.getState().update({ ...createListingDraft, fromPin: { text: '0,0', intent: 'unchanged' }, toPin: { text: '1,2', intent: 'replace' } });
+  await mount();
+  await press('Select From');
+  await Renderer.act(async () => tree.root.findByType(ListingLocationPicker).props.onSelect({ ...createListingDraft.from }));
+  expect(useListingDraft.getState().values.fromPin?.text).toBe('0,0');
+  await press('Select From');
+  await Renderer.act(async () => tree.root.findByType(ListingLocationPicker).props.onSelect(createListingDraft.to));
+  expect(useListingDraft.getState().values.fromPin).toEqual({ text: '', intent: 'clear' });
+  expect(useListingDraft.getState().values.toPin?.text).toBe('1,2');
+  await Renderer.act(async () => tree.root.findAllByType(TextInput).find(node => node.props.accessibilityLabel === 'Title')!.props.onChangeText('Updated title'));
+  expect(useListingDraft.getState().values.toPin?.text).toBe('1,2');
+  await press('Select To');
+  await Renderer.act(async () => tree.root.findByType(ListingLocationPicker).props.onSelect(createListingDraft.from));
+  expect(useListingDraft.getState().values.toPin).toEqual({ text: '', intent: 'clear' });
+});
+
+test('invalid pin submission shows an inline error without requiring blur; Clear To preserves From', async () => {
+  useListingDraft.getState().update({ ...createListingDraft, fromPin: { text: '0,0', intent: 'replace' } });
+  await mount();
+  await Renderer.act(async () => tree.root.findAllByType(TextInput).find(node => node.props.accessibilityLabel === 'To Location Pin (Optional)')!.props.onChangeText('1,'));
+  await press('Continue');
+  expect(navigation.navigate).not.toHaveBeenCalledWith('ListingReview');
+  expect(tree.root.findAll(node => node.props.children === 'Enter latitude, longitude as two decimal numbers.').length).toBeGreaterThan(0);
+  await press('Clear to location pin');
+  expect(useListingDraft.getState().values.toPin).toEqual({text:'',intent:'clear'});
+  expect(useListingDraft.getState().values.fromPin?.text).toBe('0,0');
+});
+
+test('late GPS never supplies manual pins; changed GPS geography invalidates only stale origin pin', async () => {
+  let resolve!: (value: Awaited<ReturnType<typeof listingGpsService.detect>>) => void;
+  jest.spyOn(listingGpsService, 'hasPermission').mockResolvedValue(true);
+  jest.spyOn(listingGpsService, 'enabled').mockResolvedValue(true);
+  jest.spyOn(listingGpsService, 'detect').mockImplementation(() => new Promise(done => { resolve = done; }));
+  await mount();
+  await Renderer.act(async () => tree.root.findAllByType(TextInput).find(node => node.props.accessibilityLabel === 'From Location Pin (Optional)')!.props.onChangeText('1,2'));
+  await Renderer.act(async () => tree.root.findAllByType(TextInput).find(node => node.props.accessibilityLabel === 'To Location Pin (Optional)')!.props.onChangeText('3,4'));
+  await Renderer.act(async () => resolve({ country: createListingDraft.from!.country, city: createListingDraft.from!.city }));
+  expect(useListingDraft.getState().values.fromPin).toEqual({ text: '', intent: 'clear' });
+  expect(useListingDraft.getState().values.toPin?.text).toBe('3,4');
+});

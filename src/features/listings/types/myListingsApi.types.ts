@@ -1,6 +1,11 @@
 import { z } from 'zod';
+import { formatManualListingPin } from '../../post-listing/types/manualListingPin';
 const id = z.number().int().positive().nullable();
 export const ownListingApiSchema = z.object({
+  from_latitude: z.number().finite().min(-90).max(90).nullable().optional(),
+  from_longitude: z.number().finite().min(-180).max(180).nullable().optional(),
+  to_latitude: z.number().finite().min(-90).max(90).nullable().optional(),
+  to_longitude: z.number().finite().min(-180).max(180).nullable().optional(),
   id: z.number().int().positive(),
   category_id: id,
   from_country_id: id,
@@ -28,6 +33,14 @@ export const ownListingApiSchema = z.object({
     .url()
     .refine(url => /^https?:\/\//i.test(url))
     .nullable(),
+}).superRefine((row, context) => {
+  for (const side of ['from', 'to'] as const) {
+    const latitude = row[`${side}_latitude`], longitude = row[`${side}_longitude`];
+    if (latitude === undefined && longitude === undefined) continue;
+    if (latitude === null && longitude === null) continue;
+    if (typeof latitude !== 'number' || typeof longitude !== 'number' || !formatManualListingPin({latitude, longitude}))
+      context.addIssue({code:'custom',path:[`${side}_latitude`],message:'Invalid owner location pin.'});
+  }
 });
 export const ownListingsResponseSchema = z.object({
   success: z.literal(true),

@@ -146,7 +146,15 @@ test('201 invalidates only real account My Listings and Dashboard summary, clear
     }),
   );
 });
-test('explicit Create submits Pending, selects All and opens existing My Listings without polluting public Details', async () => {
+test('current Published 201 selects All and opens existing My Listings exactly once without polluting public Details', async () => {
+  post.mockResolvedValueOnce({
+    status: 201,
+    data: {
+      success: true,
+      message: 'Listing created successfully.',
+      data: { ...record, status: 1 },
+    },
+  });
   const navigate = jest.fn();
   jest.spyOn(navigationRef, 'isReady').mockReturnValue(true);
   const ownerNavigate = jest
@@ -171,6 +179,13 @@ test('explicit Create submits Pending, selects All and opens existing My Listing
   expect(ownerNavigate).toHaveBeenCalledWith('AppDrawer', {
     screen: 'MyListings',
   });
+  expect(ownerNavigate).toHaveBeenCalledTimes(1);
+  expect(Toast.show).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'success',
+      text2: 'Your listing has been created.',
+    }),
+  );
   expect(useMyListingsTabs.getState().tabs['user:8']).toBe('all');
   expect(navigate).not.toHaveBeenCalled();
 });
@@ -497,59 +512,69 @@ test('demo composer state never calls protected Create API', async () => {
   );
 });
 
-test('confirmed creation refetches All from the customer endpoint and exposes the authoritative Pending record', async () => {
-  let saved = false;
-  get.mockImplementation(async (url, config) =>
-    url === '/customer/listings'
-      ? {
-          status: 200,
-          data: {
-            success: true,
-            message: 'Your listings',
+test.each([0, 1] as const)(
+  'confirmed creation refetches All and preserves authoritative server status %s',
+  async status => {
+    const authoritative = { ...record, status };
+    let saved = false;
+    get.mockImplementation(async (url, config) =>
+      url === '/customer/listings'
+        ? {
+            status: 200,
             data: {
-              items: saved ? [record] : [],
-              pagination: {
-                current_page: 1,
-                per_page: 20,
-                total: saved ? 1 : 0,
-                last_page: 1,
+              success: true,
+              message: 'Your listings',
+              data: {
+                items: saved ? [authoritative] : [],
+                pagination: {
+                  current_page: 1,
+                  per_page: 20,
+                  total: saved ? 1 : 0,
+                  last_page: 1,
+                },
               },
             },
-          },
-        }
-      : referenceResponse(url, config),
-  );
-  post.mockImplementation(async () => {
-    saved = true;
-    return {
-      status: 201,
-      data: { success: true, message: 'Created', data: record },
-    };
-  });
-  const options = {
-    queryKey: ['myListings.read', 'user:8', 'all'],
-    queryFn: ({ signal }: { signal: AbortSignal }) =>
-      getMyListings('all', 1, signal),
-  };
-  await client.fetchQuery(options);
-  const { QueryObserver } = require('@tanstack/react-query');
-  const observer = new QueryObserver(client, options),
-    unsubscribe = observer.subscribe(() => {});
-  try {
-    await mount();
-    await Renderer.act(async () => controller.submit());
-    expect(client.getQueryData(options.queryKey)).toMatchObject({
-      data: [{ id: record.id, status: 'pending', backend: { status: 0 } }],
-      meta: { total: 1 },
-    });
-    const reads = get.mock.calls.filter(
-      ([url]) => url === '/customer/listings',
+          }
+        : referenceResponse(url, config),
     );
-    expect(reads.length).toBeGreaterThanOrEqual(2);
-    for (const [, config] of reads)
-      expect(config.params).not.toHaveProperty('status');
-    expect(post).toHaveBeenCalledTimes(1);
-  } finally {
-    unsubscribe();
-  }
-});
+    post.mockImplementation(async () => {
+      saved = true;
+      return {
+        status: 201,
+        data: { success: true, message: 'Created', data: authoritative },
+      };
+    });
+    const options = {
+      queryKey: ['myListings.read', 'user:8', 'all'],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        getMyListings('all', 1, signal),
+    };
+    await client.fetchQuery(options);
+    const { QueryObserver } = require('@tanstack/react-query');
+    const observer = new QueryObserver(client, options),
+      unsubscribe = observer.subscribe(() => {});
+    try {
+      await mount();
+      await Renderer.act(async () => controller.submit());
+      expect(client.getQueryData(options.queryKey)).toMatchObject({
+        data: [
+          {
+            id: record.id,
+            status: status === 0 ? 'pending' : 'active',
+            backend: { status },
+          },
+        ],
+        meta: { total: 1 },
+      });
+      const reads = get.mock.calls.filter(
+        ([url]) => url === '/customer/listings',
+      );
+      expect(reads.length).toBeGreaterThanOrEqual(2);
+      for (const [, config] of reads)
+        expect(config.params).not.toHaveProperty('status');
+      expect(post).toHaveBeenCalledTimes(1);
+    } finally {
+      unsubscribe();
+    }
+  },
+);

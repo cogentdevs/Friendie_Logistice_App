@@ -113,6 +113,33 @@ beforeEach(async () => {
   });
   await loadListingReferences();
 });
+
+test('coordinate JSON create confirms real pins before separate image multipart upload', async () => {
+  const coordinates = {from_latitude:0,from_longitude:0,to_latitude:-33.8688197,to_longitude:151.2092955};
+  useListingDraft.getState().update({...draft,image,fromPin:{text:'0,0',intent:'replace'},toPin:{text:'-33.8688197,151.2092955',intent:'replace'}});
+  post.mockImplementation(async url => url === '/customer/listings' ? {status:201,data:{success:true,message:'Created',data:{...row,...coordinates}}} : {status:200,data:{success:true,message:'Uploaded',data:{image_url:savedUrl}}});
+  await mount();
+  await Renderer.act(async () => controller.submit());
+  expect(post.mock.calls.map(call => call[0])).toEqual(['/customer/listings','/customer/listings/123/image']);
+  expect(post.mock.calls[0][1]).toMatchObject(coordinates);
+  const form = post.mock.calls[1][1] as FormData;
+  expect(form.getParts()).toHaveLength(1);
+  expect(form.getParts()[0]).toMatchObject({fieldName:'image',uri:image.uri,type:image.type});
+  expect(useListingDraft.getState().values.fromPin).toBeUndefined();
+  expect(created).toHaveBeenCalledTimes(1);
+});
+
+test('coordinate 422 groups correct input feedback and preserves text without upload or success', async () => {
+  useListingDraft.getState().update({...draft,image,fromPin:{text:'0,0',intent:'replace'}});
+  post.mockRejectedValueOnce(new ApiError('Validation failed','validation',422,{from_longitude:['Invalid pin pair']}));
+  await mount();
+  await Renderer.act(async () => controller.submit());
+  expect(controller.errors).toEqual({fromPin:['Invalid pin pair']});
+  expect(useListingDraft.getState().values.fromPin?.text).toBe('0,0');
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(created).not.toHaveBeenCalled();
+  expect(Toast.show).not.toHaveBeenCalledWith(expect.objectContaining({type:'success'}));
+});
 afterEach(async () => {
   await Renderer.act(async () => {
     tree?.unmount();
@@ -123,6 +150,14 @@ afterEach(async () => {
   jest.mocked(launchImageLibrary).mockReset();
 });
 test('confirmed 201 precedes multipart POST; image never enters Create JSON; one success and navigation', async () => {
+  post.mockResolvedValueOnce({
+    status: 201,
+    data: {
+      success: true,
+      message: 'Listing created successfully.',
+      data: { ...row, status: 1 },
+    },
+  });
   await mount();
   await Renderer.act(async () => controller.submit());
   expect(post.mock.calls.map(([url]) => url)).toEqual([
@@ -137,7 +172,7 @@ test('confirmed 201 precedes multipart POST; image never enters Create JSON; one
     expect.objectContaining({
       type: 'success',
       text1: 'Listing image uploaded successfully',
-        text2: 'Your image is saved to the created listing.',
+      text2: 'Your image is saved to the created listing.',
     }),
   );
   expect(useListingDraft.getState().imageRecovery).toBeUndefined();

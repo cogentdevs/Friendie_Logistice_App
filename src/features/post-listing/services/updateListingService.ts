@@ -11,6 +11,8 @@ import {
 } from '../../listings/types/myListingsApi.types';
 import { ListingDraft } from '../types/listingDraft';
 import { createListingPayload } from './createListingService';
+import { hydrateListingPin, ListingCoordinates, pinSides, pinResponseMatches } from './listingPinPayload';
+import { parseManualListingPin } from '../types/manualListingPin';
 import {
   getListingReferences,
   ReferenceOption,
@@ -91,6 +93,8 @@ export async function loadListingEdit(
     };
   };
   const initial: ListingDraft = {
+    fromPin: hydrateListingPin(row, 'from'),
+    toPin: hydrateListingPin(row, 'to'),
     type: row.ad_type === 'Carring' ? 'carry' : 'send',
     title: row.title ?? '',
     category: identity(categories, row.category_id),
@@ -106,14 +110,41 @@ export async function loadListingEdit(
     weight: row.weight == null ? '' : String(row.weight),
   };
   const context: EditContext = { original: row, initial, user, state: 'ready' };
+  // A slower duplicate owner read must not replace a newer edit/draft snapshot.
+  const latest = contexts.get(id);
+  if (latest?.user === user && (latest !== existing || latest.draft || latest.state === 'pending' || latest.state === 'unknown'))
+    return latest;
   contexts.set(id, context);
   return context;
 }
 export function changedListingFields(
   context: EditContext,
   draft: ListingDraft,
-) {
+): Record<string, unknown> & ListingCoordinates {
   const full = createListingPayload(draft);
+  // Coordinate pairs are diffed atomically below, never as independent axes.
+  for (const side of pinSides) {
+    delete full[`${side}_latitude`];
+    delete full[`${side}_longitude`];
+  }
+  const coordinates: ListingCoordinates = {};
+  for (const side of pinSides) {
+    const pin = draft[`${side}Pin`];
+    if (!pin || pin.intent === 'unchanged') continue;
+    const parsed = parseManualListingPin(pin.text);
+    if (!parsed.valid) throw new ApiError(parsed.error, 'validation');
+    const latitude = context.original[`${side}_latitude`], longitude = context.original[`${side}_longitude`];
+    const geographyChanged = full[`${side}_country_id`] !== context.original[`${side}_country_id`] || full[`${side}_city_id`] !== context.original[`${side}_city_id`];
+    if (parsed.coordinates) {
+      if (geographyChanged || parsed.coordinates.latitude !== latitude || parsed.coordinates.longitude !== longitude) {
+        coordinates[`${side}_latitude`] = parsed.coordinates.latitude;
+        coordinates[`${side}_longitude`] = parsed.coordinates.longitude;
+      }
+    } else if (typeof latitude === 'number' && typeof longitude === 'number') {
+      coordinates[`${side}_latitude`] = null;
+      coordinates[`${side}_longitude`] = null;
+    }
+  }
   const intended = {
     ...full,
     weight: draft.weight.trim() ? Number(draft.weight) : null,
@@ -124,7 +155,7 @@ export function changedListingFields(
   };
   // The form has no visibility control. Preserve the stored value by omission.
   const fields = intended;
-  return Object.fromEntries(
+  return { ...Object.fromEntries(
     Object.entries(fields).filter(([key, value]) => {
       let previous = context.original[key as keyof OwnListingRecord];
       if (key === 'currency' && typeof previous === 'string')
@@ -137,7 +168,7 @@ export function changedListingFields(
       if ((key === 'from_address' || key === 'to_address') && previous === undefined) previous = null;
       return key !== 'show_contact_info' && value !== previous;
     }),
-  );
+  ), ...coordinates };
 }
 const response = z.object({
   success: z.literal(true),
@@ -163,6 +194,14 @@ export async function updateListing(
       'validation',
     );
   const payload = changedListingFields(context, draft);
+  const expectedPins: ListingCoordinates = { ...payload };
+  for (const side of pinSides) {
+    const changed = (payload[`${side}_country_id`] !== undefined && payload[`${side}_country_id`] !== context.original[`${side}_country_id`]) || (payload[`${side}_city_id`] !== undefined && payload[`${side}_city_id`] !== context.original[`${side}_city_id`]);
+    if (expectedPins[`${side}_latitude`] === undefined && context.original[`${side}_latitude`] !== undefined) {
+      expectedPins[`${side}_latitude`] = changed ? null : context.original[`${side}_latitude`];
+      expectedPins[`${side}_longitude`] = changed ? null : context.original[`${side}_longitude`];
+    }
+  }
   if (!Object.keys(payload).length) return null;
   context.state = 'pending';
   let dispatched = false;
@@ -191,6 +230,7 @@ export async function updateListing(
     if (
       result.status !== 200 ||
       !parsed.success ||
+      !pinResponseMatches(expectedPins, parsed.data.data) ||
       parsed.data.data.id !== context.original.id ||
       (Object.prototype.hasOwnProperty.call(payload, 'from_address') && parsed.data.data.from_address !== payload.from_address) ||
       (Object.prototype.hasOwnProperty.call(payload, 'to_address') && parsed.data.data.to_address !== payload.to_address)
@@ -216,6 +256,7 @@ export async function updateListing(
         if (
           current() &&
           !signal?.aborted &&
+          pinResponseMatches(expectedPins, observed) &&
           Object.entries(payload).every(
             ([key, value]) => observed[key as keyof OwnListingRecord] === value,
           )

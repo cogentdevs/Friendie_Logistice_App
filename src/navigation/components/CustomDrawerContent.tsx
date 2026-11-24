@@ -28,6 +28,7 @@ import { useAuthStore } from '../../store/authStore';
 import { appConfig } from '../../constants/appConfig';
 import { logoutSession } from '../../features/auth/services/sessionLogout';
 import { AppAvatar } from '../../components/ui/AppAvatar';
+import { profileAvatarUri } from '../../features/profile/components/profileAvatarUri';
 import { AppBadge } from '../../components/ui/AppBadge';
 import { AppText } from '../../components/ui/AppText';
 import { AppButton } from '../../components/ui/AppButton';
@@ -58,9 +59,9 @@ export function CustomDrawerContent(props: DrawerContentComponentProps) {
     profile?.name?.trim() ||
     user?.name ||
     (previewActive ? 'UI Preview' : 'Guest');
-  const avatarUrl = profile
-    ? profile.avatarUrl ?? undefined
-    : user?.avatarUrl || undefined;
+  const avatarUrl = profileAvatarUri(
+    profile ? profile.avatarUrl ?? undefined : user?.avatarUrl || undefined,
+  );
   const [failedAvatar, setFailedAvatar] = React.useState<string>();
   const avatarKey = `${user?.id ?? 'guest'}:${avatarUrl ?? ''}`;
   const verified = (profile?.verified ?? user?.verified) === true;
@@ -90,6 +91,8 @@ export function CustomDrawerContent(props: DrawerContentComponentProps) {
     <DrawerContentScrollView {...props}>
       <View style={styles.identity}>
         <AppAvatar
+          key={avatarKey}
+          fallback="person"
           name={displayName}
           uri={failedAvatar === avatarKey ? undefined : avatarUrl}
           onError={() => setFailedAvatar(avatarKey)}

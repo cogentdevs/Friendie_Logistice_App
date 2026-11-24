@@ -6,6 +6,7 @@ import { useAuthStore } from '../../../store/authStore';
 import { ApiError } from '../../../types/api';
 import { editContext, updateListing } from '../services/updateListingService';
 import { useEditListingDraft } from '../store/editListingDraftStore';
+import { listingPinErrors } from '../services/listingPinPayload';
 export function useUpdateListing(
   id: string | undefined,
   focused: boolean,
@@ -102,7 +103,7 @@ export function useUpdateListing(
         return;
       }
       setHeld(uncertain);
-      if (error instanceof ApiError && error.fields) setErrors(error.fields);
+      if (error instanceof ApiError && error.fields) setErrors(listingPinErrors(error.fields));
       Toast.show({
         type: uncertain ? 'warning' : 'error',
         text1: uncertain

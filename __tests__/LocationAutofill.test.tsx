@@ -20,6 +20,20 @@ import { useDevelopmentStore } from '../src/store/developmentStore';
 import { apiClient } from '../src/services/api/apiClient';
 import { routeFixture } from '../test/fixtures/search';
 
+// Initialize the preset's lazy native views before timing GPS interactions.
+// Keep the real views, geolocation mocks and assertions unchanged.
+const nativeViews = require('react-native');
+[
+  'View',
+  'Text',
+  'TextInput',
+  'Modal',
+  'ScrollView',
+  'Pressable',
+  'KeyboardAvoidingView',
+  'ActivityIndicator',
+].forEach(name => Reflect.get(nativeViews, name));
+
 const fix = { latitude: 24.812345, longitude: 67.054321, accuracyMeters: 8 };
 const address = {
   countryName: 'Pakistan',

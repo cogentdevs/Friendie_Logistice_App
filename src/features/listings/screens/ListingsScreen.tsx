@@ -136,19 +136,31 @@ function Results({
       label: filters.weightKg + ' kg',
       remove: () => update({ weightKg: undefined }),
     });
-  if (filters.from || filters.to)
+  const fromReference = filters.routeReferences?.from;
+  const toReference = filters.routeReferences?.to;
+  const referenceLabel = (reference: typeof fromReference) =>
+    reference
+      ? [reference.city?.name, reference.country.name]
+          .filter(Boolean)
+          .join(', ')
+      : undefined;
+  if (filters.from || filters.to || fromReference || toReference)
     chips.push({
       key: 'route',
       label:
-        (filters.from ? locationLabel(filters.from) : 'Any origin') +
+        (referenceLabel(fromReference) ??
+          (filters.from ? locationLabel(filters.from) : 'Any origin')) +
         ' \u2192 ' +
-        (filters.to ? locationLabel(filters.to) : 'Any destination'),
+        (referenceLabel(toReference) ??
+          (filters.to ? locationLabel(filters.to) : 'Any destination')),
       remove: () =>
         update({
           from: undefined,
           to: undefined,
           origin: undefined,
           destination: undefined,
+          routeReferences: undefined,
+          destinationCountry: undefined,
         }),
     });
   if (filters.destination || filters.origin)
@@ -179,11 +191,13 @@ function Results({
       label: filters.type === 'carry' ? 'Carry Parcel' : 'Send Parcel',
       remove: () => update({ type: undefined }),
     });
-  if (filters.dates)
+  if (filters.dates || filters.date)
     chips.push({
       key: 'dates',
-      label: displayRange(filters.dates),
-      remove: () => update({ dates: undefined }),
+      label: displayRange(
+        filters.dates ?? { start: filters.date!, end: filters.date! },
+      ),
+      remove: () => update({ dates: undefined, date: undefined }),
     });
   if (filters.verifiedOnly)
     chips.push({

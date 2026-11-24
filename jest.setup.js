@@ -98,6 +98,7 @@ jest.mock('lucide-react-native', () => {
       'ShieldAlert',
       'Clock',
       'Info',
+      'X',
     ].map(name => [name, Icon]),
   );
 });

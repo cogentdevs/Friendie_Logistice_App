@@ -55,6 +55,8 @@ import {
 } from '../types/listingDraft';
 import { beginListingDraft } from '../services/createListingService';
 import { ListingImageInput } from '../components/ListingImageInput';
+import { ManualListingPinInput } from '../components/ManualListingPinInput';
+import { listingGeographyChanged } from '../types/manualListingPin';
 type Props = NativeStackScreenProps<
   PostStackParamList,
   'PostListing' | 'SendParcel' | 'CarryParcel'
@@ -141,6 +143,18 @@ function ListingForm({
     }
   };
   const [detectedOrigin, setDetectedOrigin] = useState<ListingGpsResult>();
+  const updateLocation = (side: 'from' | 'to', location: ListingDraft['from']) => {
+    const options = {
+      shouldDirty: true,
+      shouldValidate: form.formState.isSubmitted,
+    };
+    if (
+      listingGeographyChanged(form.getValues(side), location) &&
+      form.getValues(`${side}Pin`)
+    )
+      form.setValue(`${side}Pin`, { text: '', intent: 'clear' }, options);
+    form.setValue(side, location, options);
+  };
   const addressEdited = useRef(false);
   const gps = useListingGps(!edit && focused, () => !form.getValues('from') && !form.getValues('fromAddress')?.trim() && !addressEdited.current && !detectedOrigin, result => {
     setDetectedOrigin(result);
@@ -149,7 +163,7 @@ function ListingForm({
       persist();
     }
     if (picker !== 'from' && result.city) {
-      form.setValue('from', { country: result.country, city: result.city, source: 'api', ...(result.area ? { area: { name: result.area } } : {}) }, { shouldDirty: true });
+      updateLocation('from', { country: result.country, city: result.city, source: 'api', ...(result.area ? { area: { name: result.area } } : {}) });
       persist();
     }
   });
@@ -402,6 +416,25 @@ function ListingForm({
           />
           <Controller
             control={form.control}
+            name="fromPin"
+            render={({ field }) => (
+              <ManualListingPinInput
+                side="from"
+                value={field.value}
+                error={errors.fromPin?.text?.message}
+                onBlur={async () => {
+                  field.onBlur();
+                  await form.trigger('fromPin');
+                }}
+                onChange={value => {
+                  field.onChange(value);
+                  persist();
+                }}
+              />
+            )}
+          />
+          <Controller
+            control={form.control}
             name="fromAddress"
             render={({ field, fieldState }) => (
               <AppInput
@@ -431,6 +464,25 @@ function ListingForm({
               Keyboard.dismiss();
               setPicker('to');
             }}
+          />
+          <Controller
+            control={form.control}
+            name="toPin"
+            render={({ field }) => (
+              <ManualListingPinInput
+                side="to"
+                value={field.value}
+                error={errors.toPin?.text?.message}
+                onBlur={async () => {
+                  field.onBlur();
+                  await form.trigger('toPin');
+                }}
+                onChange={value => {
+                  field.onChange(value);
+                  persist();
+                }}
+              />
+            )}
           />
           <Controller
             control={form.control}
@@ -591,10 +643,7 @@ function ListingForm({
               useAuthStore.getState().status !== authStatus
             )
               return;
-            form.setValue(picker, location, {
-              shouldDirty: true,
-              shouldValidate: form.formState.isSubmitted,
-            });
+            updateLocation(picker, location);
             if (picker === 'from') { gps.invalidate(); setDetectedOrigin(undefined); }
             persist();
             setPicker(null);

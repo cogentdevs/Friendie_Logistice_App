@@ -169,6 +169,53 @@ test('review uses Save changes without creation or image upload', async () => {
     params: { listingId: '123', returnTo: 'MyListings' },
   });
 });
+
+test('edit hydrates local unchanged pin draft, preserves on unrelated edit and tracks explicit removal without network writes', async () => {
+  const context = editContext('123')!;
+  context.draft = { ...context.initial, fromPin: { text: '0, 0', intent: 'unchanged' } };
+  await mount(<PostListingScreen navigation={navigation as never} route={{key:'edit', name:'PostListing', params:{editListingId:'123'}}} />);
+  const input = (label: string) => tree.root.findAllByType(TextInput).find(node => node.props.accessibilityLabel === label)!;
+  expect(input('From Location Pin (Optional)').props.value).toBe('0, 0');
+  expect(input('To Location Pin (Optional)').props.value).toBe('');
+  await Renderer.act(async () => input('Title').props.onChangeText('Local edit'));
+  expect(useEditListingDraft.getState().values.fromPin?.intent).toBe('unchanged');
+  await press('Clear from location pin');
+  expect(useEditListingDraft.getState().values.fromPin).toEqual({text:'',intent:'clear'});
+  await Renderer.act(async () => input('To Location Pin (Optional)').props.onChangeText('1,2'));
+  expect(useEditListingDraft.getState().values.toPin).toEqual({text:'1,2',intent:'replace'});
+  expect(put).not.toHaveBeenCalled();
+});
+
+test('owner API coordinates hydrate actual Edit inputs without dirty pin intent or image changes', async () => {
+  getOwnerPins();
+  await mount(<PostListingScreen navigation={navigation as never} route={{key:'edit',name:'PostListing',params:{editListingId:'123'}}} />);
+  const inputs = tree.root.findAllByType(TextInput);
+  expect(inputs.find(node => node.props.accessibilityLabel === 'From Location Pin (Optional)')?.props.value).toBe('0, 0');
+  expect(inputs.find(node => node.props.accessibilityLabel === 'To Location Pin (Optional)')?.props.value).toBe('-33.8688197, 151.2092955');
+  expect(useEditListingDraft.getState().values.fromPin?.intent).toBe('unchanged');
+  expect(tree.root.findAllByType(ListingImageInput)).toHaveLength(0);
+  expect(put).not.toHaveBeenCalled();
+});
+function getOwnerPins() {
+  jest.spyOn(apiClient,'get').mockImplementation(async (url,config) => url === '/customer/listings/123' ? {status:200,data:{success:true,message:'Owned',data:{...record,from_latitude:0,from_longitude:0,to_latitude:-33.8688197,to_longitude:151.2092955}}} : referenceResponse(url,config));
+}
+
+test('confirmed saved-pin clear invalidates existing owner caches without public coordinate insertion', async () => {
+  const context = editContext('123')!;
+  context.original = {...context.original,from_latitude:0,from_longitude:0};
+  context.initial = {...context.initial,fromPin:{text:'0, 0',intent:'unchanged'}};
+  useEditListingDraft.getState().update({...context.initial,fromPin:{text:'',intent:'clear'}});
+  const ownKey = ['ownListingDetails',8,'123'];
+  const publicKey = ['listingDetails','123'];
+  client.setQueryData(ownKey,{backend:context.original});
+  client.setQueryData(publicKey,{id:123,title:'Public'});
+  await mount();
+  await Renderer.act(async () => control.submit());
+  expect(put.mock.calls[0][1]).toEqual({from_latitude:null,from_longitude:null});
+  expect(client.getQueryState(ownKey)?.isInvalidated).toBe(true);
+  expect(client.getQueryData(publicKey)).toEqual({id:123,title:'Public'});
+  expect(saved).toHaveBeenCalledWith(123);
+});
 test('success invalidates scoped caches, retains filters/pages, no Dashboard counter fabrication', async () => {
   const mine = ['myListings.read', 'user:8', 'active'],
     other = ['myListings.read', 'user:9', 'active'],

@@ -34,6 +34,7 @@ import { SafeScreen } from '../../../components/layout/SafeScreen';
 import { AppText } from '../../../components/ui/AppText';
 import { AppButton } from '../../../components/ui/AppButton';
 import { AppAvatar } from '../../../components/ui/AppAvatar';
+import { profileAvatarUri } from '../components/profileAvatarUri';
 import { colors } from '../../../theme';
 import { useAuthStore } from '../../../store/authStore';
 import { useProfile } from '../hooks/useProfile';
@@ -51,18 +52,22 @@ export function ProfileScreen({ navigation }: Props) {
     client = useQueryClient();
   const { query, demo } = useProfile(),
     sessionUser = useAuthStore(state => state.user);
-  const identity = query.data ?? sessionUser;
+  const identity = demo
+    ? query.data ?? sessionUser
+    : query.data?.id === sessionUser?.id
+    ? query.data
+    : sessionUser;
   const name = identity?.name.trim() || 'Traveller',
     verified = identity?.verified === true;
   const statistics = query.data?.statistics;
-  const [avatarFailed, setAvatarFailed] = useState(false),
+  const [failedAvatarKey, setFailedAvatarKey] = useState<string>(),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
   const [logoutVisible, setLogoutVisible] = useState(false);
   const loggingOut = useRef(false);
-  const uri = identity?.avatarUrl || undefined;
-  const failedUri = useRef<string | undefined>(undefined);
-  const avatarUnavailable = avatarFailed && failedUri.current === uri;
+  const uri = profileAvatarUri(identity?.avatarUrl);
+  const avatarKey = `${sessionUser?.id ?? 'guest'}:${uri ?? ''}`;
+  const avatarUnavailable = failedAvatarKey === avatarKey;
   const signOut = async () => {
     if (loggingOut.current) return;
     loggingOut.current = true;
@@ -176,16 +181,16 @@ export function ProfileScreen({ navigation }: Props) {
             <View style={styles.avatarBorder}>
               {uri && !avatarUnavailable ? (
                 <Image
+                  key={avatarKey}
                   accessibilityLabel={name + ' avatar'}
                   source={{ uri }}
                   style={styles.avatar}
                   onError={() => {
-                    failedUri.current = uri;
-                    setAvatarFailed(true);
+                    setFailedAvatarKey(avatarKey);
                   }}
                 />
               ) : (
-                <AppAvatar name={name} size={84} />
+                <AppAvatar name={name} size={84} fallback="person" />
               )}{' '}
               {verified && (
                 <View

@@ -12,6 +12,8 @@ import * as listingService from '../src/features/listings/services/listingsServi
 import { routeFixture } from '../test/fixtures/search';
 import { localDate } from '../src/features/search/types/search';
 import { ApiError } from '../src/types/api';
+import * as demoMode from '../src/features/listings/development/demoListings';
+import { useLocationStore } from '../src/features/location/store/locationStore';
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
   useIsFocused: () => true,
@@ -20,6 +22,35 @@ jest.mock('@react-navigation/native', () => ({
 }));
 let tree: ReactTestRenderer, client: QueryClient;
 const navigate = jest.fn();
+test('public keyword-only search reaches Results without inventing required route locations', async () => {
+  jest.spyOn(demoMode, 'isListingDemoMode').mockReturnValue(false);
+  useLocationStore.getState().useWorldwide();
+  await Renderer.act(async () =>
+    useSearchStore.setState({ filters: { query: 'parcel' } }),
+  );
+  await Renderer.act(async () =>
+    tree.update(
+      <QueryClientProvider client={client}>
+        <SearchScreen
+          key="keyword-only"
+          navigation={{ navigate, setOptions: jest.fn() } as never}
+          route={{ key: 'keyword-only', name: 'Search' }}
+        />
+      </QueryClientProvider>,
+    ),
+  );
+  const get = jest
+    .spyOn(listingService, 'getListings')
+    .mockResolvedValue({ data: [], meta: { current_page: 1, last_page: 1 } });
+  await press('Search Listings');
+  expect(get).toHaveBeenCalledTimes(1);
+  expect(get.mock.calls[0][1]).toMatchObject({
+    query: 'parcel',
+    from: undefined,
+    to: undefined,
+  });
+  expect(navigate).toHaveBeenCalledWith('Results');
+});
 beforeEach(async () => {
   await AsyncStorage.removeItem('friendie.recent-searches');
   useRecentSearchStore.setState({ items: [], ready: false });

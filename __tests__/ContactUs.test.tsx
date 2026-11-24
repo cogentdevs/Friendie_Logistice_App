@@ -1,6 +1,8 @@
 import React from 'react';
 import Renderer, { ReactTestRenderer } from 'react-test-renderer';
-import { TextInput, Alert } from 'react-native';
+import { TextInput, Alert, Modal, BackHandler } from 'react-native';
+import { LogoutConfirmationModal } from '../src/features/auth/components/LogoutConfirmationModal';
+import Toast from 'react-native-toast-message';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ContactUsScreen } from '../src/features/support/screens/ContactUsScreen';
 import {
@@ -13,7 +15,8 @@ let protectedDraft = false;
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
   useIsFocused: () => true,
-  useFocusEffect: () => {},
+  useFocusEffect: (effect: () => void) =>
+    require('react').useEffect(effect, [effect]),
   usePreventRemove: (enabled: boolean, callback: typeof prevent) => {
     protectedDraft = enabled;
     prevent = callback;
@@ -131,16 +134,150 @@ test('network failure preserves draft and never shows success', async () => {
       .find(n => n.props.accessibilityLabel === 'Subject')!.props.value,
   ).toBe('Listing assistance');
   expect(protectedDraft).toBe(true);
-  const alert = jest.spyOn(Alert, 'alert');
   await Renderer.act(async () => {
     prevent({ data: { action: { type: 'GO_BACK' } } });
   });
-  expect(alert).toHaveBeenCalledWith(
-    'Discard message?',
-    expect.any(String),
-    expect.any(Array),
-    expect.any(Object),
+  expect(tree.root.findByType(LogoutConfirmationModal).props.visible).toBe(
+    true,
   );
+  expect(
+    tree.root.findByType(LogoutConfirmationModal).props.content.title,
+  ).toBe('Discard message?');
+});
+
+test('pristine header Back leaves without opening discard confirmation', async () => {
+  const alert = jest.spyOn(Alert, 'alert');
+  await mount();
+  await press('Back from Contact Us');
+  expect(navigation.navigate).toHaveBeenCalledWith('HelpSupport');
+  expect(tree.root.findByType(LogoutConfirmationModal).props.visible).toBe(
+    false,
+  );
+  expect(alert).not.toHaveBeenCalled();
+});
+
+test('dirty header Back opens one themed dialog; Keep Editing preserves every draft value', async () => {
+  const alert = jest.spyOn(Alert, 'alert');
+  await mount();
+  await fill();
+  await press('Back from Contact Us');
+  await press('Back from Contact Us');
+  expect(tree.root.findAllByType(LogoutConfirmationModal)).toHaveLength(1);
+  expect(tree.root.findByType(LogoutConfirmationModal).props.visible).toBe(
+    true,
+  );
+  expect(navigation.navigate).not.toHaveBeenCalled();
+  await press('Keep Editing');
+  expect(tree.root.findByType(LogoutConfirmationModal).props.visible).toBe(
+    false,
+  );
+  for (const [label, value] of [
+    ['Full Name', 'Member'],
+    ['Email Address', 'member@example.test'],
+    ['Subject', 'Listing assistance'],
+    ['Message', 'Please help me with this listing.'],
+  ]) {
+    expect(
+      tree.root
+        .findAllByType(TextInput)
+        .find(n => n.props.accessibilityLabel === label)!.props.value,
+    ).toBe(value);
+  }
+  expect(protectedDraft).toBe(true);
+  expect(alert).not.toHaveBeenCalled();
+});
+
+test('header Discard clears draft and navigates once despite repeated confirmation', async () => {
+  await mount();
+  await fill();
+  await press('Back from Contact Us');
+  const confirm = tree.root.findByType(LogoutConfirmationModal).props.onConfirm;
+  await Renderer.act(async () => {
+    confirm();
+    confirm();
+  });
+  expect(navigation.navigate).toHaveBeenCalledTimes(1);
+  expect(navigation.navigate).toHaveBeenCalledWith('HelpSupport');
+  expect(
+    tree.root
+      .findAllByType(TextInput)
+      .find(n => n.props.accessibilityLabel === 'Subject')!.props.value,
+  ).toBe('');
+  expect(protectedDraft).toBe(false);
+});
+
+test('navigation-away cancellation preserves draft; confirmation replays only the original action after guard clears', async () => {
+  await mount();
+  await fill();
+  await Renderer.act(async () =>
+    prevent({ data: { action: { type: 'ORIGINAL_ACTION' } } }),
+  );
+  const modal = tree.root.findByType(LogoutConfirmationModal);
+  const native = modal.findByType(Modal);
+  expect(native.props.transparent).toBe(true);
+  await Renderer.act(async () => native.props.onRequestClose());
+  expect(navigation.dispatch).not.toHaveBeenCalled();
+  expect(protectedDraft).toBe(true);
+  await Renderer.act(async () => {
+    prevent({ data: { action: { type: 'ORIGINAL_ACTION' } } });
+    prevent({ data: { action: { type: 'DUPLICATE_ACTION' } } });
+  });
+  navigation.dispatch.mockImplementationOnce(() =>
+    expect(protectedDraft).toBe(false),
+  );
+  await press('Discard');
+  expect(navigation.dispatch).toHaveBeenCalledTimes(1);
+  expect(navigation.dispatch).toHaveBeenCalledWith({ type: 'ORIGINAL_ACTION' });
+});
+
+test('Android hardware Back opens discard confirmation and modal Back keeps editing', async () => {
+  const listener = jest.spyOn(BackHandler, 'addEventListener');
+  await mount();
+  await fill();
+  const handler = listener.mock.calls
+    .filter(([event]) => event === 'hardwareBackPress')
+    .at(-1)![1];
+  await Renderer.act(async () => {
+    expect(handler({ type: 'hardwareBackPress', timeStamp: 1 })).toBe(true);
+  });
+  expect(tree.root.findByType(LogoutConfirmationModal).props.visible).toBe(
+    true,
+  );
+  await Renderer.act(async () =>
+    tree.root
+      .findByType(LogoutConfirmationModal)
+      .findByType(Modal)
+      .props.onRequestClose(),
+  );
+  expect(tree.root.findByType(LogoutConfirmationModal).props.visible).toBe(
+    false,
+  );
+  expect(protectedDraft).toBe(true);
+});
+
+test('pending submission blocks leaving with existing Toast feedback rather than a native alert', async () => {
+  const toast = jest.spyOn(Toast, 'show').mockImplementation(() => {});
+  let resolve!: (value: { accepted: true }) => void;
+  jest.spyOn(contactService, 'submit').mockImplementation(
+    () =>
+      new Promise(done => {
+        resolve = done;
+      }),
+  );
+  const alert = jest.spyOn(Alert, 'alert');
+  await mount();
+  await fill();
+  await press('Send Message');
+  await press('Back from Contact Us');
+  expect(toast).toHaveBeenCalledWith(
+    expect.objectContaining({ type: 'info', text1: 'Please wait' }),
+  );
+  expect(tree.root.findByType(LogoutConfirmationModal).props.visible).toBe(
+    false,
+  );
+  expect(navigation.navigate).not.toHaveBeenCalled();
+  expect(alert).not.toHaveBeenCalled();
+  await Renderer.act(async () => resolve({ accepted: true }));
 });
 test('unconfigured categories show empty state without invented choices', async () => {
   supportConfig.categories = [];

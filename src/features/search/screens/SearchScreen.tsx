@@ -118,7 +118,7 @@ export function SearchScreen({ navigation }: Props) {
   });
   const openFilters = useCallback(() => {
     Keyboard.dismiss();
-    useSearchStore.getState().setFilters({ type, from, to, dates });
+    useSearchStore.getState().setFilters({ type, from, to, dates, date: undefined });
     navigation.navigate('Filters');
   }, [navigation, type, from, to, dates]);
   useLayoutEffect(() => {
@@ -210,10 +210,8 @@ export function SearchScreen({ navigation }: Props) {
     if (submitting.current) return;
     Keyboard.dismiss();
     clearFeedback();
-    const referenceOnly =
-      !isListingDemoMode() &&
-      Boolean(initial.routeReferences?.from || initial.routeReferences?.to);
-    if ((!from || !to) && !referenceOnly) {
+    const publicSearch = !isListingDemoMode();
+    if ((!from || !to) && !publicSearch) {
       setError('Select both From and To locations.');
       return;
     }
@@ -236,7 +234,7 @@ export function SearchScreen({ navigation }: Props) {
       availableNow: initial.availableNow,
       radiusTarget: initial.radiusTarget,
     });
-    if (!parsed.success && !referenceOnly) {
+    if (!parsed.success && !publicSearch) {
       setError('Check your route and date range.');
       return;
     }
@@ -260,6 +258,7 @@ export function SearchScreen({ navigation }: Props) {
     const candidate = {
       ...useSearchStore.getState().filters,
       ...snapshot,
+      date: undefined,
       origin: undefined,
       destination: undefined,
     };
@@ -283,6 +282,7 @@ export function SearchScreen({ navigation }: Props) {
       from: snapshot.from,
       to: snapshot.to,
       dates: snapshot.dates,
+      date: undefined,
       query: snapshot.query,
       category: snapshot.category,
       origin: undefined,

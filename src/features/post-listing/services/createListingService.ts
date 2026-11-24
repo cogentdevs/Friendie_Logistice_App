@@ -10,8 +10,9 @@ import { ListingDraft, listingDraftSchema } from '../types/listingDraft';
 import { hasVerifiedListingReferences } from './listingReferencesService';
 import { useListingDraft } from '../store/listingDraftStore';
 import type { OwnListingRecord } from '../../listings/types/myListingsApi.types';
+import { createPinFields, ListingCoordinates, pinResponseMatches } from './listingPinPayload';
 
-export type CreateListingRequest = {
+export type CreateListingRequest = ListingCoordinates & {
   ad_type: 'Carring' | 'Send';
   title: string;
   category_id: number;
@@ -97,6 +98,7 @@ export function createListingPayload(
       'validation',
     );
   return {
+    ...createPinFields(value),
     ad_type: value.type === 'carry' ? 'Carring' : 'Send',
     title: value.title!.trim(),
     category_id: value.category!.id,
@@ -108,7 +110,9 @@ export function createListingPayload(
     departure_on: value.date,
     reached_on: value.reachedOn!,
     show_contact_info: 0,
-    ...(value.fromAddress?.trim() ? { from_address: value.fromAddress.trim() } : {}),
+    ...(value.fromAddress?.trim()
+      ? { from_address: value.fromAddress.trim() }
+      : {}),
     ...(value.toAddress?.trim() ? { to_address: value.toAddress.trim() } : {}),
     ...(value.description?.trim() ? { description: value.description } : {}),
     ...(value.weightPrice?.trim()
@@ -172,10 +176,15 @@ export async function createListing(draft: ListingDraft, signal?: AbortSignal) {
     if (
       response.status !== 201 ||
       !parsed.success ||
-      parsed.data.data.status !== 0 ||
+      !pinResponseMatches(payload, parsed.data.data) ||
+      // Current Laravel creates Published (1). Keep compatibility with the
+      // previously supported Pending (0), without rewriting either server value.
+      (parsed.data.data.status !== 0 && parsed.data.data.status !== 1) ||
       parsed.data.data.show_contact_info !== 0 ||
-      (payload.from_address !== undefined && parsed.data.data.from_address !== payload.from_address) ||
-      (payload.to_address !== undefined && parsed.data.data.to_address !== payload.to_address) ||
+      (payload.from_address !== undefined &&
+        parsed.data.data.from_address !== payload.from_address) ||
+      (payload.to_address !== undefined &&
+        parsed.data.data.to_address !== payload.to_address) ||
       Object.entries(payload).some(
         ([key, value]) =>
           key !== 'description' &&

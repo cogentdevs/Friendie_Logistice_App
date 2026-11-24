@@ -47,6 +47,52 @@ const navigation = {
   canGoBack: () => true,
   goBack: jest.fn(),
 };
+test('advanced route chip removes all directional identities and resets to first-page query', async () => {
+  useBrowseFiltersStore.setState({
+    filters: {
+      routeReferences: {
+        from: {
+          country: { id: 1, name: 'Pakistan' },
+          city: { id: 101, name: 'Karachi', countryId: 1 },
+        },
+      },
+    },
+  });
+  const get = jest
+    .spyOn(service, 'getListings')
+    .mockResolvedValue({ data: [], meta: { current_page: 1, last_page: 1 } });
+  await mount();
+  await press('Remove filter Karachi, Pakistan → Any destination');
+  expect(
+    useBrowseFiltersStore.getState().filters.routeReferences,
+  ).toBeUndefined();
+  expect(get.mock.calls.at(-1)![0]).toBe(1);
+  expect(get.mock.calls.at(-1)![1]).toMatchObject({
+    from: undefined,
+    to: undefined,
+    routeReferences: undefined,
+  });
+});
+test('clearing date removes both exact-date aliases so legacy date cannot reappear in requests', async () => {
+  useBrowseFiltersStore.setState({
+    filters: {
+      dates: { start: '2099-01-02', end: '2099-01-02' },
+      date: '2099-01-01',
+    },
+  });
+  jest
+    .spyOn(service, 'getListings')
+    .mockResolvedValue({ data: [], meta: { current_page: 1, last_page: 1 } });
+  await mount();
+  const remove = tree.root.findAll(
+    n =>
+      typeof n.props.onPress === 'function' &&
+      n.props.accessibilityLabel?.startsWith('Remove filter '),
+  )[0];
+  await Renderer.act(async () => remove.props.onPress());
+  expect(useBrowseFiltersStore.getState().filters.dates).toBeUndefined();
+  expect(useBrowseFiltersStore.getState().filters.date).toBeUndefined();
+});
 async function settle() {
   await Renderer.act(async () => {
     await new Promise<void>(resolve => setTimeout(() => resolve(), 25));

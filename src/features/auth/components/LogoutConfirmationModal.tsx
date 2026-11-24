@@ -10,11 +10,19 @@ export function LogoutConfirmationModal({
   onCancel,
   onConfirm,
   busy = false,
+  content,
 }: {
   visible: boolean;
   busy?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
+  content?: {
+    title: string;
+    description: string;
+    cancelLabel: string;
+    confirmLabel: string;
+    icon?: React.ReactNode;
+  };
 }) {
   const cancel = () => {
     if (!busy) onCancel();
@@ -42,23 +50,26 @@ export function LogoutConfirmationModal({
             style={styles.card}
           >
             <View style={styles.icon}>
-              <LogOut size={32} color={colors.primary} accessible={false} />
+              {content?.icon ?? (
+                <LogOut size={32} color={colors.primary} accessible={false} />
+              )}
             </View>
             <AppText
               accessibilityRole="header"
               color={colors.navy}
               style={styles.title}
             >
-              Log Out?
+              {content?.title ?? 'Log Out?'}
             </AppText>
             <AppText style={styles.description}>
-              Are you sure you want to log out of your account?
+              {content?.description ??
+                'Are you sure you want to log out of your account?'}
             </AppText>
             <View style={styles.actions}>
               <Pressable
                 cssInterop={false}
                 accessibilityRole="button"
-                accessibilityLabel="Cancel logout"
+                accessibilityLabel={content?.cancelLabel ?? 'Cancel logout'}
                 accessibilityState={{ disabled: busy }}
                 disabled={busy}
                 onPress={cancel}
@@ -69,12 +80,12 @@ export function LogoutConfirmationModal({
                 ]}
               >
                 <AppText color={colors.navy} style={styles.buttonText}>
-                  Cancel
+                  {content?.cancelLabel ?? 'Cancel'}
                 </AppText>
               </Pressable>
               <AppButton
-                title="Log Out"
-                accessibilityLabel="Confirm logout"
+                title={content?.confirmLabel ?? 'Log Out'}
+                accessibilityLabel={content?.confirmLabel ?? 'Confirm logout'}
                 loading={busy}
                 disabled={busy}
                 onPress={() => {

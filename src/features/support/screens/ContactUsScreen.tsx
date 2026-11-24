@@ -1,7 +1,6 @@
 import { KeyboardScrollView as ScrollView } from '../../../components/layout/KeyboardScrollView';
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   BackHandler,
   Keyboard,
   Modal,
@@ -38,6 +37,8 @@ import { AppText } from '../../../components/ui/AppText';
 import { AppInput } from '../../../components/ui/AppInput';
 import { GradientButton } from '../../../components/ui/GradientButton';
 import { colors } from '../../../theme';
+import Toast from 'react-native-toast-message';
+import { LogoutConfirmationModal } from '../../auth/components/LogoutConfirmationModal';
 import { useAuthStore } from '../../../store/authStore';
 import { ApiError } from '../../../types/api';
 import {
@@ -51,6 +52,12 @@ import {
   contactError,
 } from '../services/contactService';
 type Props = DrawerScreenProps<DrawerParamList, 'ContactUs'>;
+const waitForSubmission = () =>
+  Toast.show({
+    type: 'info',
+    text1: 'Please wait',
+    text2: 'Wait for the support request to finish.',
+  });
 export function ContactUsScreen({
   navigation,
   onReturn,
@@ -65,6 +72,23 @@ export function ContactUsScreen({
   } | null>(null);
   const submission = useRef(false),
     confirming = useRef(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [discardConfirmed, setDiscardConfirmed] = useState(false);
+  const pendingExit = useRef<(() => void) | null>(null);
+  const exiting = useRef(false);
+  const openDiscard = useCallback((leave: () => void) => {
+    if (confirming.current || exiting.current) return;
+    Keyboard.dismiss();
+    confirming.current = true;
+    pendingExit.current = leave;
+    setDiscardOpen(true);
+  }, []);
+  const cancelDiscard = () => {
+    if (exiting.current) return;
+    pendingExit.current = null;
+    confirming.current = false;
+    setDiscardOpen(false);
+  };
   const emailRef = useRef<React.ComponentRef<typeof TextInput>>(null),
     subjectRef = useRef<React.ComponentRef<typeof TextInput>>(null),
     messageRef = useRef<React.ComponentRef<typeof TextInput>>(null);
@@ -86,37 +110,33 @@ export function ContactUsScreen({
   });
   const busy = request.isPending || form.formState.isSubmitting;
   usePreventRemove(
-    focused && (form.formState.isDirty || busy) && !confirmation,
+    focused &&
+      (form.formState.isDirty || busy) &&
+      !confirmation &&
+      !discardConfirmed,
     ({ data }) => {
       if (submission.current) {
-        Alert.alert('Please wait', 'Wait for the support request to finish.');
+        waitForSubmission();
         return;
       }
-      if (confirming.current) return;
-      confirming.current = true;
-      Alert.alert(
-        'Discard message?',
-        'Your unsent message will be discarded.',
-        [
-          {
-            text: 'Keep Editing',
-            style: 'cancel',
-            onPress: () => {
-              confirming.current = false;
-            },
-          },
-          {
-            text: 'Discard',
-            style: 'destructive',
-            onPress: () => {
-              confirming.current = false;
-              navigation.dispatch(data.action);
-            },
-          },
-        ],
-        { cancelable: false },
-      );
+      openDiscard(() => navigation.dispatch(data.action));
     },
+  );
+  // Wait for the removal guard to render disabled before replaying its action.
+  useEffect(() => {
+    if (!discardConfirmed) return;
+    const leave = pendingExit.current;
+    pendingExit.current = null;
+    leave?.();
+  }, [discardConfirmed]);
+  useFocusEffect(
+    useCallback(() => {
+      exiting.current = false;
+      confirming.current = false;
+      pendingExit.current = null;
+      setDiscardConfirmed(false);
+      setDiscardOpen(false);
+    }, []),
   );
   const submit = form.handleSubmit(async values => {
     if (submission.current) return;
@@ -152,8 +172,9 @@ export function ContactUsScreen({
     }
   });
   const back = useCallback(() => {
+    if (exiting.current) return;
     if (submission.current) {
-      Alert.alert('Please wait', 'Wait for the support request to finish.');
+      waitForSubmission();
       return;
     }
     const leave = () =>
@@ -162,32 +183,8 @@ export function ContactUsScreen({
       leave();
       return;
     }
-    if (confirming.current) return;
-    confirming.current = true;
-    Alert.alert(
-      'Discard message?',
-      'Your unsent message will be discarded.',
-      [
-        {
-          text: 'Keep Editing',
-          style: 'cancel',
-          onPress: () => {
-            confirming.current = false;
-          },
-        },
-        {
-          text: 'Discard',
-          style: 'destructive',
-          onPress: () => {
-            confirming.current = false;
-            form.reset();
-            leave();
-          },
-        },
-      ],
-      { cancelable: false },
-    );
-  }, [navigation, form, confirmation, onReturn]);
+    openDiscard(leave);
+  }, [navigation, form, confirmation, onReturn, openDiscard]);
   useFocusEffect(
     useCallback(() => {
       const subscription = BackHandler.addEventListener(
@@ -429,6 +426,25 @@ export function ContactUsScreen({
           )}
         </ScrollView>
       </KeyboardScreen>
+      <LogoutConfirmationModal
+        visible={discardOpen}
+        onCancel={cancelDiscard}
+        onConfirm={() => {
+          if (!pendingExit.current || exiting.current || submission.current)
+            return;
+          exiting.current = true;
+          form.reset();
+          setDiscardOpen(false);
+          setDiscardConfirmed(true);
+        }}
+        content={{
+          title: 'Discard message?',
+          description: 'Your unsent message will be discarded.',
+          cancelLabel: 'Keep Editing',
+          confirmLabel: 'Discard',
+          icon: <Mail size={32} color={colors.primary} accessible={false} />,
+        }}
+      />
       <Modal
         visible={picker}
         transparent

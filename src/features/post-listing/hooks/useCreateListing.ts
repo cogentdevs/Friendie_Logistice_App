@@ -19,6 +19,7 @@ import {
 } from '../services/listingImageUploadService';
 import { getOwnListingDetails } from '../../listings/services/ownListingDetailsService';
 import type { ListingImageRecovery } from '../store/listingDraftStore';
+import { listingPinErrors } from '../services/listingPinPayload';
 
 export function useCreateListing(
   focused: boolean,
@@ -257,7 +258,10 @@ export function useCreateListing(
       Toast.show({
         type: 'success',
         text1: 'Listing created',
-        text2: 'Your listing is Pending approval.',
+        text2:
+          row.status === 0
+            ? 'Your listing is Pending approval.'
+            : 'Your listing has been created.',
       });
       if (unchanged) onCreated(row.id);
     } catch (error) {
@@ -276,7 +280,7 @@ export function useCreateListing(
         return;
       }
       if (error instanceof ApiError && error.status === 422 && error.fields)
-        setErrors(error.fields);
+        setErrors(listingPinErrors(error.fields));
       const uncertain = listingSubmission()?.state === 'unknown';
       Toast.show({
         type: uncertain ? 'warning' : 'error',

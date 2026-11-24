@@ -123,7 +123,7 @@ function ReviewContent({
         )}
         {Object.entries(action.errors).map(([field, messages]) => (
           <AppText key={field} accessibilityRole="alert" color={colors.danger}>
-            {field}: {messages.join(' ')}
+            {field === 'fromPin' ? 'From Location Pin' : field === 'toPin' ? 'To Location Pin' : field}: {messages.join(' ')}
           </AppText>
         ))}
         {!editId && (create.recovery?.image || values.image) && (

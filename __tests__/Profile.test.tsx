@@ -2,6 +2,9 @@ import { ProfileMenuRow } from '../src/features/profile/components/ProfileMenuRo
 import React from 'react';
 import Renderer, { ReactTestRenderer } from 'react-test-renderer';
 import { Image } from 'react-native';
+import { UserRound } from 'lucide-react-native';
+import { AppAvatar } from '../src/components/ui/AppAvatar';
+import { profileAvatarUri } from '../src/features/profile/components/profileAvatarUri';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProfileScreen } from '../src/features/profile/screens/ProfileScreen';
 import * as profileService from '../src/features/profile/services/profileService';
@@ -14,6 +17,38 @@ jest.mock('@react-navigation/native', () => ({
   useIsFocused: () => true,
 }));
 const person = { id: 8, name: 'Real Member', email: 'member@example.test' };
+test.each([
+  null,
+  '',
+  '   ',
+  'https://example.test/frontend/img/profiles/avatar.jpg',
+  'https://example.test/base/frontend/img/profiles/avatar.jpg?v=1',
+])(
+  'missing/verified placeholder avatar uses person icon (%s)',
+  async avatarUrl => {
+    jest
+      .spyOn(profileService, 'getProfile')
+      .mockResolvedValue({ ...person, avatarUrl });
+    await mount();
+    expect(tree.root.findAllByType(Image)).toHaveLength(0);
+    const avatar = tree.root.findByType(AppAvatar);
+    expect(avatar.props.size).toBe(84);
+    expect(avatar.findAllByType(UserRound)).toHaveLength(1);
+  },
+);
+test.each([
+  'https://example.test/avatar.jpg',
+  'https://example.test/uploads/avatar.jpg',
+  'https://example.test/frontend/img/profiles/api_user_8_123.jpg',
+  'https://example.test/custom.jpg?path=/frontend/img/profiles/avatar.jpg',
+])('uploaded URL is not rejected by filename guesses (%s)', async avatarUrl => {
+  expect(profileAvatarUri(avatarUrl)).toBe(avatarUrl);
+  jest
+    .spyOn(profileService, 'getProfile')
+    .mockResolvedValue({ ...person, avatarUrl });
+  await mount();
+  expect(tree.root.findByType(Image).props.source).toEqual({ uri: avatarUrl });
+});
 let tree: ReactTestRenderer, client: QueryClient;
 const nav = { navigate: jest.fn() };
 async function settle() {
@@ -143,6 +178,9 @@ test('missing stats/verification are safe and failed avatar falls back', async (
   ).toBeGreaterThan(0);
   await Renderer.act(async () => tree.root.findByType(Image).props.onError());
   expect(tree.root.findAllByType(Image)).toHaveLength(0);
+  expect(tree.root.findByType(AppAvatar).findAllByType(UserRound)).toHaveLength(
+    1,
+  );
 });
 test('profile error has a working retry', async () => {
   const get = jest

@@ -19,21 +19,71 @@ import {
 } from '../test/fixtures/createListing';
 
 let post: jest.SpyInstance, get: jest.SpyInstance;
+test('current Laravel HTTP 201 Published record is confirmed unchanged, without client status fabrication', async () => {
+  post.mockResolvedValueOnce({
+    status: 201,
+    data: {
+      success: true,
+      message: 'Listing created successfully.',
+      data: { ...record, status: 1 },
+    },
+  });
+  const result = await createListing(draft);
+  expect(result).toMatchObject({ id: record.id, status: 1 });
+  expect(listingSubmission()?.state).toBe('confirmed');
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(post.mock.calls[0][1]).not.toHaveProperty('status');
+  expect(post.mock.calls[0][1]).not.toHaveProperty('isActive');
+});
 test('Task 35 separate addresses use exact API keys and authoritative response', async () => {
-  post.mockResolvedValueOnce({ status: 201, data: { success: true, message: 'Created', data: { ...record, from_address: '12 Origin Street', to_address: '34 Destination Road' } } });
-  const result = await createListing({ ...draft, fromAddress: '12 Origin Street', toAddress: '34 Destination Road' });
-  expect(post.mock.calls[0][1]).toMatchObject({ from_address: '12 Origin Street', to_address: '34 Destination Road', from_area: 'Clifton', to_area: 'Deira' });
+  post.mockResolvedValueOnce({
+    status: 201,
+    data: {
+      success: true,
+      message: 'Created',
+      data: {
+        ...record,
+        from_address: '12 Origin Street',
+        to_address: '34 Destination Road',
+      },
+    },
+  });
+  const result = await createListing({
+    ...draft,
+    fromAddress: '12 Origin Street',
+    toAddress: '34 Destination Road',
+  });
+  expect(post.mock.calls[0][1]).toMatchObject({
+    from_address: '12 Origin Street',
+    to_address: '34 Destination Road',
+    from_area: 'Clifton',
+    to_area: 'Deira',
+  });
   expect(result.from_address).toBe('12 Origin Street');
 });
 test('Task 35 missing address confirmation cannot silently report a saved address', async () => {
-  await expect(createListing({ ...draft, fromAddress: '12 Origin Street' })).rejects.toMatchObject({ kind: 'unknown' });
+  await expect(
+    createListing({ ...draft, fromAddress: '12 Origin Street' }),
+  ).rejects.toMatchObject({ kind: 'unknown' });
   expect(listingSubmission()?.state).toBe('unknown');
 });
-test.each(['fromAddress', 'toAddress'] as const)('Task 35 %s optional whitespace and length validation', key => {
-  expect(createListingPayload({ ...draft, [key]: '   ' })).not.toHaveProperty(key === 'fromAddress' ? 'from_address' : 'to_address');
-  expect(() => createListingPayload({ ...draft, [key]: 'x'.repeat(256) })).toThrow();
-  expect(createListingPayload({ ...draft, [key]: 'x'.repeat(255) })).toHaveProperty(key === 'fromAddress' ? 'from_address' : 'to_address', 'x'.repeat(255));
-});
+test.each(['fromAddress', 'toAddress'] as const)(
+  'Task 35 %s optional whitespace and length validation',
+  key => {
+    expect(createListingPayload({ ...draft, [key]: '   ' })).not.toHaveProperty(
+      key === 'fromAddress' ? 'from_address' : 'to_address',
+    );
+    expect(() =>
+      createListingPayload({ ...draft, [key]: 'x'.repeat(256) }),
+    ).toThrow();
+    expect(
+      createListingPayload({ ...draft, [key]: 'x'.repeat(255) }),
+    ).toHaveProperty(
+      key === 'fromAddress' ? 'from_address' : 'to_address',
+      'x'.repeat(255),
+    );
+  },
+);
 beforeEach(async () => {
   useAuthStore
     .getState()
@@ -251,7 +301,7 @@ test.each([
   { status: 200, data: { success: true, message: 'OK', data: record } },
   {
     status: 201,
-    data: { success: true, message: 'OK', data: { ...record, status: 1 } },
+    data: { success: true, message: 'OK', data: { ...record, status: 2 } },
   },
   {
     status: 201,

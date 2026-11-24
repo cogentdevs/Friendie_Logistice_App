@@ -9,17 +9,38 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ListingsStackParamList } from '../src/navigation/navigationTypes';
 import React from 'react';
 import Renderer, { ReactTestRenderer } from 'react-test-renderer';
-import { Alert, Image, Linking, Share } from 'react-native';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Alert, Image, Linking, Share, Text } from 'react-native';
+import {
+  QueryClient,
+  QueryClientProvider,
+  notifyManager,
+} from '@tanstack/react-query';
 import { ListingDetailsScreen } from '../src/features/listings/screens/ListingDetailsScreen';
 import * as service from '../src/features/listings/services/listingDetailsService';
 import * as ownDetails from '../src/features/listings/services/ownListingDetailsService';
 import { ownListingFixture } from '../test/fixtures/myListings';
+import { secureStorage } from '../src/services/storage/secureStorage';
 import { useAuthStore } from '../src/store/authStore';
 import { useListingBookmarks } from '../src/features/listings/store/bookmarkStore';
 import { navigationRef } from '../src/navigation/navigationRef';
 import { ApiError } from '../src/types/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+// Resolve lazy native component modules before Jest starts the first interaction
+// timer; keep the real preset components rather than replacing screen behavior.
+const nativeViews = require('react-native');
+[
+  'View',
+  'Text',
+  'ScrollView',
+  'Modal',
+  'TextInput',
+  'Pressable',
+  'Image',
+  'KeyboardAvoidingView',
+  'StatusBar',
+  'ActivityIndicator',
+  'TouchableOpacity',
+].forEach(name => Reflect.get(nativeViews, name));
 jest.mock('@react-navigation/native', () => ({
   ...jest.requireActual('@react-navigation/native'),
   useIsFocused: () => true,
@@ -67,12 +88,12 @@ const nav = {
 };
 async function settle() {
   await Renderer.act(async () => {
-    await new Promise<void>(resolve => setTimeout(() => resolve(), 25));
+    await Promise.resolve();
   });
 }
 async function mount(returnTo?: 'MyReviews' | 'MyListings') {
   client = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   });
   await Renderer.act(async () => {
     tree = Renderer.create(
@@ -137,6 +158,7 @@ function ViewWithHeader({ header }: { header: React.ReactNode }) {
   );
 }
 beforeEach(async () => {
+  notifyManager.setScheduler(callback => callback());
   jest.clearAllMocks();
   nav.setOptions.mockClear();
   useAuthStore.setState({
@@ -151,6 +173,7 @@ afterEach(async () => {
     tree?.unmount();
   });
   client?.clear();
+  notifyManager.setScheduler(callback => setTimeout(callback, 0));
   jest.restoreAllMocks();
 });
 
@@ -579,4 +602,89 @@ test('static public listing keeps Write a review disabled', async () => {
       typeof node.props.onPress === 'function',
   )[0];
   expect(button.props.disabled).toBe(true);
+});
+
+test('verified owner pins are selectable, refresh after editing, and disappear on account switching', async () => {
+  jest.spyOn(secureStorage, 'getToken').mockResolvedValue('phase4-dummy-token');
+  const get = jest.spyOn(apiClient, 'get').mockResolvedValue({
+    status: 200,
+    data: {
+      success: true,
+      message: 'Listing',
+      data: {
+        ...ownListingFixture,
+        id: 12,
+        from_latitude: 0,
+        from_longitude: 0,
+        to_latitude: -33.8688197,
+        to_longitude: 151.2092955,
+      },
+    },
+  });
+  await mount('MyListings');
+  const values = () =>
+    tree.root
+      .findAllByType(Text)
+      .filter(node => node.props.selectable === true)
+      .map(node => node.props.children);
+  expect(values()).toEqual(['0, 0', '-33.8688197, 151.2092955']);
+  get.mockResolvedValue({
+    status: 200,
+    data: {
+      success: true,
+      message: 'Listing',
+      data: {
+        ...ownListingFixture,
+        id: 12,
+        from_latitude: 24.86,
+        from_longitude: 67.01,
+        to_latitude: null,
+        to_longitude: null,
+      },
+    },
+  });
+  await Renderer.act(async () => {
+    await client.invalidateQueries({
+      queryKey: ['ownListingDetails', 88, '12'],
+    });
+  });
+  await settle();
+  expect(values()).toEqual(['24.86, 67.01']);
+  get.mockRejectedValue(new ApiError('Not found.', 'not-found', 404));
+  await Renderer.act(async () => {
+    useAuthStore.setState({
+      status: 'authenticated',
+      user: { id: 99, name: 'Other', email: 'other@example.test' },
+    });
+  });
+  expect(values()).not.toContain('24.86, 67.01');
+  await Renderer.act(async () =>
+    useAuthStore.setState({ status: 'guest', user: undefined }),
+  );
+  expect(values()).toEqual([]);
+});
+
+test('public details and unverified cached owner records never display exact pins', async () => {
+  const privateRecord = {
+    ...fixture,
+    status: 'active' as const,
+    backend: {
+      ...ownListingFixture,
+      from_latitude: 24.86,
+      from_longitude: 67.01,
+    },
+  };
+  jest.spyOn(service, 'getListingDetails').mockResolvedValue(privateRecord);
+  await mount();
+  expect(
+    tree.root.findAll(node => node.props.children === 'From Location Pin'),
+  ).toHaveLength(0);
+  await Renderer.act(async () => tree.unmount());
+  jest
+    .spyOn(ownDetails, 'getOwnListingDetails')
+    .mockResolvedValue(privateRecord);
+  await mount('MyListings');
+  expect(
+    tree.root.findAll(node => node.props.children === 'From Location Pin'),
+  ).toHaveLength(0);
 });

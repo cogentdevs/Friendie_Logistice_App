@@ -2,16 +2,19 @@ import React from 'react';
 import { Image, View, StyleSheet } from 'react-native';
 import { colors } from '../../theme';
 import { AppText } from './AppText';
+import { UserRound } from 'lucide-react-native';
 export function AppAvatar({
   name,
   uri,
   size = 48,
   onError,
+  fallback = 'initials',
 }: {
   name: string;
   uri?: string;
   size?: number;
   onError?: () => void;
+  fallback?: 'initials' | 'person';
 }) {
   const style = {
     width: size,
@@ -32,15 +35,23 @@ export function AppAvatar({
       accessibilityLabel={name + ' avatar'}
       style={[style, styles.container]}
     >
-      <AppText variant="headingMD" color={colors.primary}>
-        {name
-          .trim()
-          .split(/\s+/)
-          .map(part => part[0])
-          .slice(0, 2)
-          .join('')
-          .toUpperCase()}
-      </AppText>
+      {fallback === 'person' ? (
+        <UserRound
+          size={size * 0.5}
+          color={colors.primary}
+          accessible={false}
+        />
+      ) : (
+        <AppText variant="headingMD" color={colors.primary}>
+          {name
+            .trim()
+            .split(/\s+/)
+            .map(part => part[0])
+            .slice(0, 2)
+            .join('')
+            .toUpperCase()}
+        </AppText>
+      )}
     </View>
   );
 }
