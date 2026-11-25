@@ -14,6 +14,7 @@ export const conversationReadResponseSchema = z.object({
   message: z.string(),
   data: inboxItemSchema.pick({
     id: true,
+    deal_id: true,
     listing: true,
     other_participant: true,
     created_at: true,

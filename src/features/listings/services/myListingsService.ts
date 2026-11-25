@@ -126,6 +126,8 @@ export async function getMyListings(
   return responseSchema.parse({
     data: result.items.map(row => ({
       id: row.id,
+      availability: row.availability,
+      requestEligibility: row.request_eligibility,
       ownerId: result.ownerId,
       status:
         row.status === 0 ? 'pending' : row.status === 1 ? 'active' : 'expired',

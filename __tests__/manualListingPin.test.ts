@@ -120,17 +120,21 @@ test('Phase3 adds complete numeric pin pairs without changing other create/updat
     fromPin: editManualListingPin('0,0'),
     toPin: editManualListingPin('1,2'),
   };
-  const coordinates = {from_latitude:0,from_longitude:0,to_latitude:1,to_longitude:2};
-  expect(createListingPayload(withPins)).toEqual({...createListingPayload(draft),...coordinates});
+  const coordinates = { from_location_pin: '0,0', to_location_pin: '1,2' };
+  expect(createListingPayload(withPins)).toEqual({
+    ...createListingPayload(draft),
+    ...coordinates,
+  });
   const context = {
     original: ownListingApiSchema.parse(createdListingRecord),
     initial: draft,
     user: {},
     state: 'ready' as const,
   };
-  expect(changedListingFields(context, withPins)).toEqual(
-    {...changedListingFields(context, draft),...coordinates},
-  );
+  expect(changedListingFields(context, withPins)).toEqual({
+    ...changedListingFields(context, draft),
+    ...coordinates,
+  });
   get.mockRestore();
 });
 test('create/edit local pins clear on reset/logout/account switch', () => {

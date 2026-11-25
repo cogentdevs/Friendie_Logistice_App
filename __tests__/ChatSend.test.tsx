@@ -68,6 +68,8 @@ beforeEach(() => {
   jest.spyOn(service, 'getConversation').mockResolvedValue({
     id: '42',
     canSend: true,
+    dealId: 9,
+    writeUntil: Date.now() + 60000,
     participant: { id: 9, name: 'Other' },
   });
   jest
@@ -302,6 +304,8 @@ test('conversation switch cannot insert a late acknowledged message into either 
   jest.mocked(service.getConversation).mockResolvedValue({
     id: '43',
     canSend: true,
+    dealId: 10,
+    writeUntil: Date.now() + 60000,
     participant: { id: 9, name: 'Other' },
   });
   await Renderer.act(async () => {

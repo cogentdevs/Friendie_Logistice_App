@@ -201,6 +201,7 @@ function getOwnerPins() {
 }
 
 test('confirmed saved-pin clear invalidates existing owner caches without public coordinate insertion', async () => {
+  put.mockResolvedValueOnce({status:200,data:{success:true,message:'Updated',data:{...record,from_latitude:null,from_longitude:null}}});
   const context = editContext('123')!;
   context.original = {...context.original,from_latitude:0,from_longitude:0};
   context.initial = {...context.initial,fromPin:{text:'0, 0',intent:'unchanged'}};
@@ -211,7 +212,7 @@ test('confirmed saved-pin clear invalidates existing owner caches without public
   client.setQueryData(publicKey,{id:123,title:'Public'});
   await mount();
   await Renderer.act(async () => control.submit());
-  expect(put.mock.calls[0][1]).toEqual({from_latitude:null,from_longitude:null});
+  expect(put.mock.calls[0][1]).toEqual({from_location_pin:null});
   expect(client.getQueryState(ownKey)?.isInvalidated).toBe(true);
   expect(client.getQueryData(publicKey)).toEqual({id:123,title:'Public'});
   expect(saved).toHaveBeenCalledWith(123);

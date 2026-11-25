@@ -1,3 +1,6 @@
+import { ListingReviewsPanel } from '../../reviews/components/ListingReviewsPanel';
+import { ListingAvailability } from '../components/ListingAvailability';
+import { remainingLabel } from '../services/listingAvailability';
 import { useRemoveListingImage } from '../hooks/useRemoveListingImage';
 import { RemoveListingImageConfirmation } from '../components/RemoveListingImageConfirmation';
 import { SubmitReviewDialog } from '../../reviews/components/SubmitReviewDialog';
@@ -50,6 +53,7 @@ import {
   ListingsStackParamList,
 } from '../../../navigation/navigationTypes';
 import { navigationRef } from '../../../navigation/navigationRef';
+import { ListingDealActions } from '../../deals/DealContactPanel';
 import { BackButton } from '../../../navigation/components/BackButton';
 import { SafeScreen } from '../../../components/layout/SafeScreen';
 import { ScreenContainer } from '../../../components/layout/ScreenContainer';
@@ -60,6 +64,7 @@ import { colors } from '../../../theme';
 import { ApiError } from '../../../types/api';
 import { useAuthStore } from '../../../store/authStore';
 import { isVerifiedOwnedListing } from '../services/ownListingDetailsService';
+import { LocationPinActions } from '../../post-listing/components/LocationPinActions';
 import { formatManualListingPin } from '../../post-listing/types/manualListingPin';
 import { useListingDetails } from '../hooks/useListingDetails';
 import {
@@ -104,6 +109,8 @@ function DetailsContent({
   const authStatus = useAuthStore(state => state.status);
   const privateRead =
     returnTo === 'MyListings' && authStatus === 'authenticated';
+  const [choosingDeal, setChoosingDeal] = useState(false);
+  const chooseDeal = useCallback(() => setChoosingDeal(true), []);
   const removeImage = useRemoveListingImage(
     privateRead && detail && 'backend' in detail ? detail.backend : undefined,
     focused,
@@ -114,10 +121,17 @@ function DetailsContent({
     navigation.getState().routeNames.some(name => name === 'Home')
       ? 'HomeStack'
       : 'ListingsStack',
+    undefined,
+    chooseDeal,
   );
   const openInitialMessage = initial.open;
   const submitReviewForm = useSubmitReview(detail, focused);
-  const openReviewForm = submitReviewForm.open;
+  const openReviewForm = useCallback(() => {
+    requestAuthentication({
+      type: 'OPEN_ACCOUNT',
+      params: { destination: 'DealHistory' },
+    });
+  }, []);
   const retryFlight = useRef(false);
   const mounted = useRef(true);
   useEffect(() => {
@@ -133,6 +147,7 @@ function DetailsContent({
   useEffect(() => {
     const generation = ++requestGeneration.current;
     setConfirming(false);
+    setChoosingDeal(false);
     setCheckingRequest(false);
     requestFlight.current = false;
     return () => {
@@ -462,8 +477,15 @@ function DetailsContent({
           icon: CalendarDays,
         },
         {
+          label: 'Remaining Capacity',
+          value: remainingLabel(detail.availability),
+          icon: Package,
+        },
+        {
           label:
-            detail.type === 'carry' ? 'Carrying Capacity' : 'Parcel Weight',
+            detail.type === 'carry'
+              ? 'Total Carrying Capacity'
+              : 'Parcel Weight',
           value: detail.weight
             ? (detail.type === 'carry' ? 'Up to ' : '') +
               detail.weight.value +
@@ -697,6 +719,22 @@ function DetailsContent({
                       >
                         {value}
                       </AppText>
+                      {'selectable' in row && row.selectable && (
+                        <LocationPinActions
+                          text={value}
+                          label={label}
+                          isAuthorized={() =>
+                            focused &&
+                            privateRead &&
+                            useAuthStore.getState().status ===
+                              'authenticated' &&
+                            useAuthStore.getState().user === user &&
+                            !!detail &&
+                            'backend' in detail &&
+                            isVerifiedOwnedListing(detail.backend)
+                          }
+                        />
+                      )}
                     </View>
                   </View>
                 );
@@ -724,6 +762,10 @@ function DetailsContent({
                 onPress={openReviewForm}
               />
             )}
+            <ListingReviewsPanel
+              listingId={Number(id)}
+              enabled={focused && isVerifiedPublicListing(detail)}
+            />
             <ListingContactSection
               unavailableReason={requestReviewUnavailableReason(
                 detail,
@@ -740,6 +782,14 @@ function DetailsContent({
                 );
               }}
             />
+            {(isVerifiedPublicListing(detail) || privateRead) && (
+              <ListingDealActions
+                key={`${user?.id ?? 'guest'}:${detail.id}`}
+                listingId={detail.id}
+                focused={focused}
+                openRequested={choosingDeal}
+              />
+            )}
             <View style={styles.fee}>
               <AppText color={colors.navy} style={styles.feeLabel}>
                 {detail.type === 'carry' ? 'Carrying Fee' : 'Delivery Fee'}
@@ -774,12 +824,13 @@ function DetailsContent({
       </ScreenContainer>
       {detail && (
         <View style={styles.footer}>
+          <ListingAvailability availability={detail.availability} />
           <AppText accessibilityLiveRegion="polite" variant="caption">
             {requestReviewUnavailableReason(
               detail,
               authStatus === 'authenticated' ? user?.id : undefined,
             ) ??
-              'Requests and contact authorization require a verified backend connection.'}
+              'Select your complementary listing to send a request. Private contact details remain unavailable.'}
           </AppText>
           {authStatus === 'authenticated' &&
             user?.id === detail.ownerId &&
@@ -812,7 +863,10 @@ function DetailsContent({
               loading={checkingRequest}
               disabled={
                 authStatus === 'restoring' ||
-                !!requestReviewUnavailableReason(detail) ||
+                !!requestReviewUnavailableReason(
+                  detail,
+                  authStatus === 'authenticated' ? user?.id : undefined,
+                ) ||
                 query.isFetching
               }
               onPress={() => {
@@ -852,7 +906,17 @@ function DetailsContent({
         onCancel={initial.close}
       />
       <RequestConfirmationDialog
-        visible={confirming && authStatus === 'authenticated'}
+        key={`${user?.id ?? 'guest'}:${id}`}
+        visible={confirming && focused && authStatus === 'authenticated'}
+        target={detail}
+        onCreated={deal => {
+          setConfirming(false);
+          if (navigationRef.isReady())
+            navigationRef.navigate('AppDrawer', {
+              screen: 'DealDetails',
+              params: { dealId: deal.id },
+            });
+        }}
         onCancel={() => setConfirming(false)}
       />
       <Modal

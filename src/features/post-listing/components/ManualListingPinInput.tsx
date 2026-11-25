@@ -7,7 +7,7 @@ import { colors } from '../../../theme';
 import {
   ManualListingPin,
   editManualListingPin,
-  parseManualListingPin,
+  parseListingPinInput,
 } from '../types/manualListingPin';
 
 export function ManualListingPinInput({
@@ -25,12 +25,12 @@ export function ManualListingPinInput({
 }) {
   const label = `${side === 'from' ? 'From' : 'To'} Location Pin (Optional)`;
   const [blurred, setBlurred] = useState(false);
-  const parsed = parseManualListingPin(value?.text ?? '');
+  const parsed = parseListingPinInput(value?.text ?? '');
   return (
     <View>
       <AppInput
         label={label}
-        placeholder="Enter latitude, longitude"
+        placeholder="Paste Google Maps link or latitude, longitude"
         value={value?.text ?? ''}
         keyboardType="default"
         autoCapitalize="none"
@@ -55,7 +55,8 @@ export function ManualListingPinInput({
         }
       />
       <AppText variant="caption" color={colors.text}>
-        Copy latitude and longitude from Maps and paste here.
+        In Google Maps, touch and hold the required place to drop a pin. Copy
+        its latitude and longitude, then paste both here as latitude, longitude.
       </AppText>
       <AppText variant="caption" color={colors.textMuted}>
         Exact location pins are private to your account.

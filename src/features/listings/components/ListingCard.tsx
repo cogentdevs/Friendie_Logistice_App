@@ -1,3 +1,4 @@
+import { ListingAvailability } from './ListingAvailability';
 import React, { memo, useState } from 'react';
 import {
   Image,
@@ -146,6 +147,7 @@ export const ListingCard = memo(function ListingCardView({
           </View>
           <View style={styles.heartSpace} />
         </View>
+        <ListingAvailability availability={item.availability} />
         <View style={styles.badge}>
           <AppText color={colors.primaryDark} style={styles.badgeText}>
             {item.type === 'carry' ? 'Carries' : 'Send'}

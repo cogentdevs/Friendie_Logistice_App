@@ -2,6 +2,7 @@ import { useAuthStore } from '../../../store/authStore';
 import { getPublicListingDetails } from './publicListingsService';
 
 import { getDemoListing, isListingDemoMode } from '../development/demoListings';
+import { AvailabilityFields, availabilityRequestReason } from './listingAvailability';
 import { z } from 'zod';
 import { listingSchema } from './listingsService';
 
@@ -63,7 +64,7 @@ export function permittedPhone(_detail: unknown): string | undefined {
 // Only listing availability/ownership is established by the existing detail model.
 // The proposed requestStatus field has no verified current-viewer/participant semantics.
 export function requestReviewUnavailableReason(
-  detail: { status: string; ownerId: number },
+  detail: { status: string; ownerId: number } & AvailabilityFields,
   userId?: number,
 ): string | undefined {
   if (detail.status !== 'active')
@@ -73,7 +74,7 @@ export function requestReviewUnavailableReason(
       ? 'This listing has been deleted.'
       : 'This listing is unavailable.';
   if (userId === detail.ownerId) return 'You cannot request your own listing.';
-  return undefined;
+  return availabilityRequestReason(detail, userId);
 }
 export function requestUnavailableReason(
   detail: ListingDetail,

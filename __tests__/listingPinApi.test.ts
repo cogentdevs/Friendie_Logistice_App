@@ -29,6 +29,39 @@ import {
   loadListingReferences,
 } from '../test/fixtures/createListing';
 
+// Test server resolves string input to numeric response columns.
+function resolvedPins(payload: Record<string, unknown>) {
+  const result = { ...payload };
+  for (const side of ['from', 'to']) {
+    const key = side + '_location_pin';
+    if (!(key in result)) continue;
+    const value = result[key];
+    delete result[key];
+    const pair =
+      value === null || value === ''
+        ? [null, null]
+        : String(value).split(',').map(Number);
+    result[side + '_latitude'] = pair[0];
+    result[side + '_longitude'] = pair[1];
+  }
+  return result;
+}
+function pinWire(
+  fields: Record<string, unknown>,
+  input: Record<string, unknown>,
+) {
+  const result = { ...fields };
+  for (const side of ['from', 'to']) {
+    if (!(side + '_latitude' in result)) continue;
+    result[side + '_location_pin'] =
+      result[side + '_latitude'] === null
+        ? null
+        : (input[side + 'Pin'] as { text: string }).text.trim();
+    delete result[side + '_latitude'];
+    delete result[side + '_longitude'];
+  }
+  return result;
+}
 const pins = {
   from_latitude: 0,
   from_longitude: 0,
@@ -63,7 +96,7 @@ beforeEach(async () => {
       data: {
         success: true,
         message: 'Created',
-        data: { ...row, ...(payload as Record<string, unknown>) },
+        data: { ...row, ...resolvedPins(payload as Record<string, unknown>) },
       },
     }));
   put = jest
@@ -71,7 +104,7 @@ beforeEach(async () => {
     .mockImplementation(async (_url, payload) => {
       row = ownListingApiSchema.parse({
         ...row,
-        ...(payload as Record<string, unknown>),
+        ...resolvedPins(payload as Record<string, unknown>),
       });
       return {
         status: 200,
@@ -108,7 +141,7 @@ test.each([
     expect(post).toHaveBeenCalledTimes(1);
     expect(post).toHaveBeenCalledWith(
       '/customer/listings',
-      { ...createListingPayload(draft), ...expected },
+      { ...createListingPayload(draft), ...pinWire(expected, fields) },
       expect.objectContaining({
         headers: { Authorization: 'Bearer pin-test-token' },
       }),
@@ -116,14 +149,14 @@ test.each([
     const payload = post.mock.calls[0][1];
     expect(
       Object.keys(payload)
-        .filter(key => /_(latitude|longitude)$/.test(key))
+        .filter(key => /_location_pin$/.test(key))
         .sort(),
-    ).toEqual(Object.keys(expected).sort());
+    ).toEqual(Object.keys(pinWire(expected, fields)).sort());
     expect(Object.values(payload)).not.toContain(undefined);
     expect(Object.values(payload)).not.toContain(null);
   },
 );
-test.each(['1,', '91,0', '0.00000001,0', 'https://maps.app.goo.gl/x'])(
+test.each(['1,', '91,0', '0.00000001,0', 'not a pin'])(
   'invalid pin %s prevents any POST',
   async text => {
     await expect(
@@ -221,11 +254,20 @@ test('owner details and edit hydrate exact saved coordinates without writing or 
 test('slow duplicate hydration cannot replace a newer manual draft snapshot', async () => {
   const context = await loadListingEdit('123');
   let resolve!: (value: unknown) => void;
-  get.mockImplementationOnce(() => new Promise(done => {resolve=done;}));
+  get.mockImplementationOnce(
+    () =>
+      new Promise(done => {
+        resolve = done;
+      }),
+  );
   const pending = loadListingEdit('123');
-  await Promise.resolve(); await Promise.resolve();
-  context.draft = {...context.initial,fromPin:pin('5,6')};
-  resolve({status:200,data:{success:true,message:'Owned',data:row}});
+  await Promise.resolve();
+  await Promise.resolve();
+  context.draft = { ...context.initial, fromPin: pin('5,6') };
+  resolve({
+    status: 200,
+    data: { success: true, message: 'Owned', data: row },
+  });
   expect(await pending).toBe(context);
   expect(editContext('123')?.draft?.fromPin?.text).toBe('5,6');
 });
@@ -273,7 +315,7 @@ test.each([
     const context = await loadListingEdit('123');
     expect(
       changedListingFields(context, { ...context.initial, ...fields }),
-    ).toEqual(expected);
+    ).toEqual(pinWire(expected, fields));
   },
 );
 test('confirmed JSON PUT clear and subsequent owner read/hydration remain cleared', async () => {
@@ -285,7 +327,7 @@ test('confirmed JSON PUT clear and subsequent owner read/hydration remain cleare
   expect(saved?.from_latitude).toBeNull();
   expect(put).toHaveBeenCalledWith(
     '/customer/listings/123',
-    { from_latitude: null, from_longitude: null },
+    { from_location_pin: null },
     expect.objectContaining({
       headers: { Authorization: 'Bearer pin-test-token' },
     }),
@@ -304,10 +346,10 @@ test('geography change drops stale unchanged coordinates; new explicit replaceme
   });
   expect(
     changedListingFields(context, { ...changed, fromPin: pin('5,6') }),
-  ).toMatchObject({ from_latitude: 5, from_longitude: 6 });
+  ).toMatchObject({ from_location_pin: '5,6' });
   expect(
     changedListingFields(context, { ...context.initial, fromPin: pin('') }),
-  ).toEqual({ from_latitude: null, from_longitude: null });
+  ).toEqual({ from_location_pin: null });
 });
 test('backend geography clearing must be confirmed; stale echo never reports pin save success', async () => {
   const context = await loadListingEdit('123');
@@ -344,10 +386,7 @@ test.each([401, 403, 404, 422, 429])(
     expect(put).toHaveBeenCalledTimes(1);
     if (status === 422) {
       await updateListing(context, edited);
-      expect(put.mock.calls[1][1]).toEqual({
-        from_latitude: null,
-        from_longitude: null,
-      });
+      expect(put.mock.calls[1][1]).toEqual({ from_location_pin: null });
     }
   },
 );
@@ -365,24 +404,32 @@ test('unknown PUT reconciles authoritative coordinates without retry', async () 
 
 test('inconclusive timeout preserves explicit removal and prevents automatic/repeated PUT', async () => {
   const context = await loadListingEdit('123');
-  const edited = {...context.initial,fromPin:pin('')};
+  const edited = { ...context.initial, fromPin: pin('') };
   context.draft = edited;
-  put.mockRejectedValueOnce(new ApiError('Timeout','network'));
-  get.mockRejectedValueOnce(new ApiError('Offline','network'));
-  await expect(updateListing(context,edited)).rejects.toMatchObject({kind:'network'});
+  put.mockRejectedValueOnce(new ApiError('Timeout', 'network'));
+  get.mockRejectedValueOnce(new ApiError('Offline', 'network'));
+  await expect(updateListing(context, edited)).rejects.toMatchObject({
+    kind: 'network',
+  });
   expect(context.state).toBe('unknown');
-  expect(context.draft?.fromPin).toEqual({text:'',intent:'clear'});
-  await expect(updateListing(context,edited)).rejects.toMatchObject({kind:'validation'});
+  expect(context.draft?.fromPin).toEqual({ text: '', intent: 'clear' });
+  await expect(updateListing(context, edited)).rejects.toMatchObject({
+    kind: 'validation',
+  });
   expect(put).toHaveBeenCalledTimes(1);
 });
 
 test('create timeout holds the exact pin draft and never automatically resubmits', async () => {
-  const edited = {...draft,fromPin:pin(' 0, 0 ')};
-  post.mockRejectedValueOnce(new ApiError('Timeout','network'));
-  await expect(createListing(edited)).rejects.toMatchObject({kind:'network'});
+  const edited = { ...draft, fromPin: pin(' 0, 0 ') };
+  post.mockRejectedValueOnce(new ApiError('Timeout', 'network'));
+  await expect(createListing(edited)).rejects.toMatchObject({
+    kind: 'network',
+  });
   expect(listingSubmission()?.draft.fromPin?.text).toBe(' 0, 0 ');
   expect(listingSubmission()?.state).toBe('unknown');
-  await expect(createListing(edited)).rejects.toMatchObject({kind:'validation'});
+  await expect(createListing(edited)).rejects.toMatchObject({
+    kind: 'validation',
+  });
   expect(post).toHaveBeenCalledTimes(1);
 });
 test('logout during owner response ignores coordinates and prevents restored edit context', async () => {
@@ -484,9 +531,104 @@ test('public parser has no private coordinate fields, even if server unexpectedl
 });
 
 test('account-scoped owner collection retains authorized numeric pins and pagination', async () => {
-  get.mockResolvedValueOnce({status:200,data:{success:true,message:'Owned listings',data:{items:[row],pagination:{current_page:1,per_page:20,total:1,last_page:1}}}});
+  get.mockResolvedValueOnce({
+    status: 200,
+    data: {
+      success: true,
+      message: 'Owned listings',
+      data: {
+        items: [row],
+        pagination: { current_page: 1, per_page: 20, total: 1, last_page: 1 },
+      },
+    },
+  });
   const page = await getOwnListingsPage();
   expect(page.items[0]).toMatchObject(pins);
   expect(page.ownerId).toBe(8);
-  expect(get).toHaveBeenLastCalledWith('/customer/listings',expect.objectContaining({headers:{Authorization:'Bearer pin-test-token'},params:{page:1,per_page:20}}));
+  expect(get).toHaveBeenLastCalledWith(
+    '/customer/listings',
+    expect.objectContaining({
+      headers: { Authorization: 'Bearer pin-test-token' },
+      params: { page: 1, per_page: 20 },
+    }),
+  );
+});
+
+const links = [
+  'https://www.google.com/maps/search/?api=1&query=24.8607343%2C67.0011364',
+  'https://maps.app.goo.gl/ExampleCode',
+  'https://goo.gl/maps/ExampleCode',
+  'https://maps.google.com/?q=24.8607343,67.0011364',
+  'https://www.google.com/maps/place/Example/data=!3d24.8607343!4d67.0011364',
+];
+test.each(links)(
+  'create passes link unchanged for Laravel resolution: %s',
+  async link => {
+    post.mockResolvedValueOnce({
+      status: 201,
+      data: {
+        success: true,
+        message: 'Created',
+        data: {
+          ...row,
+          from_latitude: 24.8607343,
+          from_longitude: 67.0011364,
+          to_latitude: 0,
+          to_longitude: 0,
+        },
+      },
+    });
+    const saved = await createListing({
+      ...draft,
+      fromPin: pin(link),
+      toPin: pin('0,0'),
+    });
+    // Authoritative response must also match the submitted raw destination.
+    expect(saved.from_latitude).toBe(24.8607343);
+    expect(post.mock.calls[0][1]).toMatchObject({
+      from_location_pin: link,
+      to_location_pin: '0,0',
+    });
+    expect(post.mock.calls[0][1]).not.toHaveProperty('from_latitude');
+    expect(post.mock.calls[0][1]).not.toHaveProperty('to_longitude');
+  },
+);
+test('edit link replacement and clear use only pin fields', async () => {
+  const context = await loadListingEdit('123');
+  expect(
+    changedListingFields(context, {
+      ...context.initial,
+      fromPin: pin(links[1]),
+      toPin: pin(''),
+    }),
+  ).toEqual({ from_location_pin: links[1], to_location_pin: null });
+});
+test('link resolution validation errors map to existing form pins and preserve input', async () => {
+  const link = links[1],
+    edited = { ...draft, fromPin: pin(link) };
+  post.mockRejectedValueOnce(
+    new ApiError('Validation', 'validation', 422, {
+      from_location_pin: ['This link does not identify an exact pin.'],
+    }),
+  );
+  await expect(createListing(edited)).rejects.toMatchObject({ status: 422 });
+  expect(edited.fromPin.text).toBe(link);
+  expect(
+    listingPinErrors({
+      from_location_pin: ['Invalid link'],
+      to_location_pin: ['Unresolved link'],
+    }),
+  ).toEqual({ fromPin: ['Invalid link'], toPin: ['Unresolved link'] });
+});
+test('unknown link update cannot reconcile by old coordinates or retry automatically', async () => {
+  const context = await loadListingEdit('123');
+  put.mockRejectedValueOnce(new ApiError('Timeout', 'network'));
+  await expect(
+    updateListing(context, { ...context.initial, fromPin: pin(links[1]) }),
+  ).rejects.toMatchObject({ kind: 'network' });
+  expect(editContext('123')?.state).toBe('unknown');
+  await expect(
+    updateListing(context, { ...context.initial, fromPin: pin(links[1]) }),
+  ).rejects.toMatchObject({ kind: 'validation' });
+  expect(put).toHaveBeenCalledTimes(1);
 });

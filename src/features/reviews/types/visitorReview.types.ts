@@ -10,6 +10,7 @@ export const receivedReviewResponseSchema = z.object({
   data: z.object({
     items: z.array(
       z.object({
+        deal_id: z.number().int().positive().nullable().optional(),
         id: z.number().int().positive(),
         listing: z.object({
           id: z.number().int().positive(),

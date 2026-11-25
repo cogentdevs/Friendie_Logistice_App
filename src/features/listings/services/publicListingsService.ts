@@ -1,3 +1,4 @@
+import { availabilitySchema, eligibilitySchema, publicListingSession } from './listingAvailability';
 import { z } from 'zod';
 import { apiClient } from '../../../services/api/apiClient';
 import { endpoints } from '../../../services/api/endpoints';
@@ -15,6 +16,8 @@ const place = z.object({
   city: z.string().nullable(),
 });
 export const publicListingSchema = z.object({
+  availability: availabilitySchema,
+  request_eligibility: eligibilitySchema,
   id,
   ad_type: z.enum(['Carring', 'Send']),
   title: z.string().nullable(),
@@ -58,6 +61,8 @@ const label = (value: z.infer<typeof place>) =>
 export function normalizePublicListing(row: Row) {
   return {
     id: row.id,
+    availability: row.availability,
+    requestEligibility: row.request_eligibility,
     type: row.ad_type === 'Carring' ? ('carry' as const) : ('send' as const),
     title: row.title ?? '',
     origin: label(row.origin),
@@ -78,6 +83,10 @@ export function normalizePublicListing(row: Row) {
 // Query structural sharing is disabled for detail reads so this provenance survives
 // cache publication. Numeric identity or a caller-supplied flag is not proof.
 const remoteDetails = new WeakMap<object, number>();
+const remoteRows = new WeakMap<object, Row>();
+export function verifiedPublicListingRecord(value: object) {
+  return remoteRows.get(value);
+}
 export function isVerifiedPublicListing(value: unknown): boolean {
   return (
     typeof value === 'object' &&
@@ -168,11 +177,13 @@ export async function getPublicListings(
   location: LocationSelection,
   signal?: AbortSignal,
 ) {
+  const session = await publicListingSession(signal);
   const response = await apiClient.get<unknown>(endpoints.listings, {
     signal,
-    headers: { Authorization: false },
+    headers: session.headers,
     params: publicSearchParams(page, filters, location),
   });
+  await session.check();
   const parsed = pageSchema.safeParse(response.data);
   if (signal?.aborted) throw new ApiError('Request cancelled.', 'cancelled');
   if (
@@ -193,10 +204,12 @@ export async function getPublicListingDetails(
 ) {
   if (!/^[1-9]\d*$/.test(value) || !id.safeParse(Number(value)).success)
     throw new ApiError('Invalid listing.', 'not-found', 404);
+  const session = await publicListingSession(signal);
   const response = await apiClient.get<unknown>(
     endpoints.listings + '/' + value,
-    { signal, headers: { Authorization: false } },
+    { signal, headers: session.headers },
   );
+  await session.check();
   const parsed = detailSchema.safeParse(response.data);
   if (signal?.aborted) throw new ApiError('Request cancelled.', 'cancelled');
   if (
@@ -216,5 +229,6 @@ export async function getPublicListingDetails(
       : { weight: { value: row.weight, unit: 'kg' as const } }),
   };
   remoteDetails.set(result, result.id);
+  remoteRows.set(result, row);
   return result;
 }

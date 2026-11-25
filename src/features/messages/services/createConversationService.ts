@@ -4,7 +4,7 @@ import { secureStorage } from '../../../services/storage/secureStorage';
 import { useAuthStore } from '../../../store/authStore';
 import { isUiPreviewActive } from '../../../store/developmentStore';
 import { ApiError } from '../../../types/api';
-import { isVerifiedPublicListing } from '../../listings/services/publicListingsService';
+import { readDealContact } from '../../deals/dealContactService';
 import { conversationReadResponseSchema } from '../types/chatRead.types';
 import { validateMessageText } from './chatService';
 
@@ -17,7 +17,7 @@ export function conversationSubmissionState(listingId: number) {
   return user ? submissions.get(user)?.get(listingId) : undefined;
 }
 export async function createOrReuseConversation(
-  listing: { id: number },
+  listing: { id: number; dealId?: number },
   message: string,
   signal?: AbortSignal,
 ) {
@@ -25,9 +25,13 @@ export async function createOrReuseConversation(
   const user = session.user;
   if (session.status !== 'authenticated' || !user || isUiPreviewActive())
     throw new ApiError('Sign in with a real account.', 'unauthorized', 401);
-  if (!isVerifiedPublicListing(listing))
+  if (
+    !listing.dealId ||
+    !Number.isSafeInteger(listing.dealId) ||
+    listing.dealId < 1
+  )
     throw new ApiError(
-      'Messaging requires a real public listing.',
+      'Choose an authorized accepted or confirmed deal to message.',
       'validation',
     );
   validateMessageText(message);
@@ -36,12 +40,13 @@ export async function createOrReuseConversation(
     entries = new Map();
     submissions.set(user, entries);
   }
-  if (entries.has(listing.id))
+  const dealId = listing.dealId;
+  if (entries.has(dealId))
     throw new ApiError(
       'A previous submission is pending or its delivery is unknown. Check your Inbox before continuing.',
       'validation',
     );
-  entries.set(listing.id, 'pending');
+  entries.set(dealId, 'pending');
   const current = () =>
     useAuthStore.getState().status === 'authenticated' &&
     useAuthStore.getState().user === user;
@@ -60,10 +65,12 @@ export async function createOrReuseConversation(
       if (removed) useAuthStore.getState().clear();
       throw new ApiError('Please sign in again.', 'unauthorized', 401);
     }
+    const authorization = await readDealContact(dealId, signal);
+    check();
     submitted = true;
     const response = await apiClient.post<unknown>(
       endpoints.conversations,
-      { post_ads_id: listing.id, message },
+      { deal_id: dealId, message },
       { signal, headers: { Authorization: `Bearer ${token}` } },
     );
     check();
@@ -74,20 +81,23 @@ export async function createOrReuseConversation(
     if (
       ![200, 201].includes(response.status) ||
       !parsed.success ||
-      parsed.data.data.listing.id !== listing.id
+      parsed.data.data.deal_id !== dealId ||
+      parsed.data.data.listing.id !== authorization.deal.carrier_listing_id ||
+      parsed.data.data.other_participant.id !==
+        authorization.contact.counterpart.id
     )
       throw new ApiError(
         'Conversation delivery could not be confirmed. Check your Inbox.',
         'unknown',
       );
-    entries.delete(listing.id);
+    entries.delete(dealId);
     return { created: response.status === 201, conversation: parsed.data.data };
   } catch (error) {
     const rejected =
       error instanceof ApiError &&
       [400, 401, 403, 404, 409, 422, 429].includes(error.status ?? 0);
-    if (!submitted || rejected) entries.delete(listing.id);
-    else entries.set(listing.id, 'unknown');
+    if (!submitted || rejected) entries.delete(dealId);
+    else entries.set(dealId, 'unknown');
     throw error;
   }
 }

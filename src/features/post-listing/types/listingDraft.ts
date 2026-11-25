@@ -1,13 +1,20 @@
 import { z } from 'zod';
 import { validDate } from '../../search/types/search';
-import { parseManualListingPin } from './manualListingPin';
-const manualPin = z.object({
-  text: z.string(),
-  intent: z.enum(['unchanged', 'replace', 'clear']),
-}).superRefine((value, context) => {
-  const result = parseManualListingPin(value.text);
-  if (!result.valid) context.addIssue({ code: 'custom', path: ['text'], message: result.error });
-});
+import { parseListingPinInput } from './manualListingPin';
+const manualPin = z
+  .object({
+    text: z.string(),
+    intent: z.enum(['unchanged', 'replace', 'clear']),
+  })
+  .superRefine((value, context) => {
+    const result = parseListingPinInput(value.text);
+    if (!result.valid)
+      context.addIssue({
+        code: 'custom',
+        path: ['text'],
+        message: result.error,
+      });
+  });
 const identity = z.object({
   id: z.number().int().min(1).max(2147483647),
   name: z.string().min(1),

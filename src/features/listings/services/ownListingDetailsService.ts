@@ -87,6 +87,8 @@ export async function getOwnListingDetails(
   ownedRecords.set(row, session.user);
   return {
     id: row.id,
+    availability: row.availability,
+    requestEligibility: row.request_eligibility,
     ownerId: session.user.id,
     status:
       row.status === 0 ? 'pending' : row.status === 1 ? 'active' : 'expired',

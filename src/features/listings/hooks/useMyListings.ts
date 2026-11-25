@@ -33,6 +33,7 @@ export function useMyListings() {
     queryKey: [demo ? 'myListings' : 'myListings.read', scope, status],
     enabled: focused && scope !== 'guest',
     staleTime: 30000,
+    refetchInterval: focused && !demo && auth === 'authenticated' ? 30000 : false,
     initialPageParam: 1,
     queryFn: ({ pageParam, signal }) =>
       getMyListings(status, pageParam, signal),

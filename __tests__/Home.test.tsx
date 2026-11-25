@@ -1,3 +1,4 @@
+import * as notifications from '../src/features/notifications/notificationsService';
 import Toast from 'react-native-toast-message';
 import * as profileService from '../src/features/profile/services/profileService';
 import { apiClient } from '../src/services/api/apiClient';
@@ -12,6 +13,7 @@ import { Image, RefreshControl, TextInput } from 'react-native';
 import Renderer, { ReactTestRenderer } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { HomeScreen } from '../src/features/home/screens/HomeScreen';
+import { AppAvatar } from '../src/components/ui/AppAvatar';
 import { homeService } from '../src/features/home/services/homeService';
 import * as homeApi from '../src/features/home/services/homeApiService';
 import { HomeCollectionPicker } from '../src/features/home/components/HomeSections';
@@ -63,6 +65,13 @@ async function mount() {
   await settle();
 }
 beforeEach(() => {
+  jest
+    .spyOn(notifications, 'getNotificationCounts')
+    .mockResolvedValue({ unread_count: 0, pending_task_count: 0 });
+  jest.spyOn(notifications, 'getNotifications').mockResolvedValue({
+    items: [],
+    pagination: { current_page: 1, last_page: 1, per_page: 20, total: 0 },
+  });
   // These Home tests isolate Categories/navigation from secure-session Profile tests.
   jest
     .spyOn(profileService, 'getProfile')
@@ -482,4 +491,78 @@ test('real Categories shows existing loading and empty states without sample fal
   await settle();
   expect(present('No categories available yet.')).toBe(true);
   expect(button('Browse category Food Items')).toBeUndefined();
+});
+
+test('Home uses the account profile avatar, follows profile updates and clears identity on logout', async () => {
+  const member = { id: 48, name: 'Home Member', email: 'home@example.test' };
+  const profile = { ...member, avatarUrl: 'https://example.test/uploaded.png' };
+  jest.mocked(profileService.getProfile).mockResolvedValue(profile);
+  useAuthStore.getState().setUser(member);
+  await mount();
+  expect(tree.root.findByType(AppAvatar).props.uri).toBe(profile.avatarUrl);
+  await press('Open profile');
+  expect(nav.navigate).toHaveBeenLastCalledWith('ProfileStack', {
+    screen: 'Profile',
+  });
+  await Renderer.act(async () => {
+    client.setQueryData(['profile', member.id], {
+      ...profile,
+      avatarUrl: 'https://example.test/updated.png',
+    });
+  });
+  await settle();
+  expect(tree.root.findByType(AppAvatar).props.uri).toBe(
+    'https://example.test/updated.png',
+  );
+  await Renderer.act(async () => {
+    tree.root.findByType(AppAvatar).props.onError();
+  });
+  expect(tree.root.findByType(AppAvatar).props.uri).toBeUndefined();
+  expect(tree.root.findByType(AppAvatar).props.fallback).toBe('person');
+  await Renderer.act(async () => {
+    useAuthStore.getState().clear();
+    client.removeQueries({ queryKey: ['profile', member.id] });
+  });
+  await settle();
+  expect(tree.root.findByType(AppAvatar).props.uri).toBeUndefined();
+  await Renderer.act(async () => {
+    useAuthStore.getState().setUser({
+      id: 50,
+      name: 'Other Account',
+      email: 'other@example.test',
+    });
+  });
+  await settle();
+  expect(tree.root.findByType(AppAvatar).props.uri).toBeUndefined();
+  expect(tree.root.findByType(AppAvatar).props.name).toBe('Other Account');
+});
+
+test.each([null, '', 'https://example.test/frontend/img/profiles/avatar.jpg'])(
+  'Home uses the person fallback for unavailable profile image %s',
+  async avatarUrl => {
+    const member = { id: 49, name: 'No Photo', email: 'photo@example.test' };
+    jest
+      .mocked(profileService.getProfile)
+      .mockResolvedValue({ ...member, avatarUrl });
+    useAuthStore.getState().setUser(member);
+    await mount();
+    expect(tree.root.findByType(AppAvatar).props.uri).toBeUndefined();
+    expect(tree.root.findByType(AppAvatar).props.fallback).toBe('person');
+  },
+);
+
+test('Home bell displays authoritative notification unread count', async () => {
+  jest
+    .mocked(notifications.getNotificationCounts)
+    .mockResolvedValue({ unread_count: 3, pending_task_count: 1 });
+  useAuthStore
+    .getState()
+    .setUser({ id: 48, name: 'Member', email: 'member@example.test' });
+  await mount();
+  expect(button('Notifications')).toBeDefined();
+  expect(notifications.getNotificationCounts).toHaveBeenCalled();
+  expect(notifications.getNotifications).toHaveBeenCalled();
+  expect(
+    tree.root.findAll(node => node.props.children === 3).length,
+  ).toBeGreaterThan(0);
 });

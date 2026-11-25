@@ -1,3 +1,4 @@
+import { useAvailabilitySessionKey } from '../services/listingAvailability';
 import { isListingDemoMode } from '../development/demoListings';
 import { ApiError } from '../../../types/api';
 import { useInfiniteQuery } from '@tanstack/react-query';
@@ -8,6 +9,7 @@ import { useBrowseFiltersStore } from '../store/browseFiltersStore';
 import { useEffect } from 'react';
 export function useListings(enabled = true, browse = false) {
   const demo = isListingDemoMode();
+  const sessionKey = useAvailabilitySessionKey();
   const searchFilters = useSearchStore(state => state.filters);
   const searchLocation = useLocationStore(state => state.selection);
   const browseFilters = useBrowseFiltersStore(state => state.filters);
@@ -20,10 +22,12 @@ export function useListings(enabled = true, browse = false) {
       failures < 1 &&
       error instanceof ApiError &&
       ['network', 'server'].includes(error.kind),
-    staleTime: 30000,
+    staleTime: 0,
+    refetchInterval: enabled && !demo ? 30000 : false,
+    refetchOnMount: 'always',
     queryKey: demo
       ? ['listings', filters, location, 'demo']
-      : ['listings', filters, location],
+      : ['listings', filters, location, sessionKey],
     initialPageParam: 1,
     queryFn: ({ pageParam, signal }) =>
       getListings(pageParam, filters, location, signal),

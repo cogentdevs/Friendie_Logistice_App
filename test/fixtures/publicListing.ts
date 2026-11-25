@@ -22,6 +22,7 @@ export const conversationCreatedFixture = {
   message: 'Conversation created successfully.',
   data: {
     id: 42,
+    deal_id: 9,
     listing: { id: 123, title: 'Trip' },
     other_participant: { id: 9, display_name: 'Traveller' },
     created_at: '2026-11-17 10:00:00',

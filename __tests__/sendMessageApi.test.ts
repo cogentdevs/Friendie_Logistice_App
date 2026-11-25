@@ -3,6 +3,8 @@ import { apiClient } from '../src/services/api/apiClient';
 import { secureStorage } from '../src/services/storage/secureStorage';
 import { useAuthStore } from '../src/store/authStore';
 import { useDevelopmentStore } from '../src/store/developmentStore';
+import * as contacts from '../src/features/deals/dealContactService';
+import { chatAuthorizationFixture } from '../test/fixtures/dealContact';
 import {
   sendMessage,
   validateMessageText,
@@ -31,6 +33,27 @@ beforeEach(() => {
     message: 'Message sent successfully.',
     data: row,
   };
+  // Dedicated room metadata and a successful private authorization response are
+  // prerequisites now; the existing adapter still asserts the exact Send POST.
+  jest
+    .spyOn(apiClient, 'get')
+    .mockResolvedValue({
+      status: 200,
+      data: {
+        success: true,
+        message: 'OK',
+        data: {
+          id: 42,
+          deal_id: 9,
+          listing: { id: 501, title: null },
+          other_participant: { id: 9, display_name: 'Other' },
+          created_at: null,
+        },
+      },
+    });
+  jest
+    .spyOn(contacts, 'readDealContact')
+    .mockImplementation(async () => chatAuthorizationFixture(501));
   apiClient.defaults.adapter = async config => {
     calls++;
     expect(config.url).toBe('/customer/conversations/42/messages');

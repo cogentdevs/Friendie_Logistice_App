@@ -15,6 +15,10 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { useAuthStore } from '../../../store/authStore';
+import {
+  revokeDealAccess,
+  subscribeDealRevocation,
+} from '../../deals/dealAccessEvents';
 import { ApiError } from '../../../types/api';
 import {
   chatSendConfigured,
@@ -95,7 +99,9 @@ export function useChat(id: string) {
     queryFn: ({ signal }) => getConversation(id, signal),
     enabled,
     retry: false,
-    staleTime: 30000,
+    staleTime: demo ? 30000 : 0,
+    refetchOnMount: demo ? true : 'always',
+    refetchInterval: !demo && enabled ? 10000 : false,
   });
   const messages = useInfiniteQuery({
     queryKey: messagesKey,
@@ -161,8 +167,29 @@ export function useChat(id: string) {
       if (confirmed.has(local.clientId))
         useChatDrafts.getState().remove(key, local.clientId);
   }, [messages.data, owner, key]);
+  const [leaseExpired, setLeaseExpired] = useState(false);
+  useEffect(() => {
+    setLeaseExpired(false);
+    if (demo || !conversation.data?.writeUntil) return;
+    const timer = setTimeout(
+      () => setLeaseExpired(true),
+      Math.max(0, conversation.data.writeUntil - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [demo, conversation.data]);
+  useEffect(
+    () =>
+      subscribeDealRevocation(deal => {
+        if (deal === undefined || deal === conversation.data?.dealId) {
+          setLeaseExpired(true);
+          setBlocked(true);
+        }
+      }),
+    [conversation.data?.dealId],
+  );
   const canSend = Boolean(
-    owner &&
+    enabled &&
+      owner &&
       chatSendConfigured() &&
       conversation.data?.canSend &&
       !conversation.data.participant.deleted &&
@@ -171,6 +198,10 @@ export function useChat(id: string) {
       messages.isSuccess &&
       !messages.isError &&
       !blocked &&
+      (demo ||
+        (!leaseExpired &&
+          !conversation.isFetching &&
+          (conversation.data?.writeUntil ?? 0) > Date.now())) &&
       !sending &&
       (demo || !thread.uncertain),
   );
@@ -343,8 +374,11 @@ export function useChat(id: string) {
           if (
             failure instanceof ApiError &&
             [403, 404].includes(failure.status ?? 0)
-          )
+          ) {
             setBlocked(true);
+            if (conversation.data?.dealId)
+              revokeDealAccess(conversation.data.dealId);
+          }
           const fieldMessages =
             failure instanceof ApiError ? failure.fields?.message : undefined;
           const validationMessage =
@@ -400,7 +434,18 @@ export function useChat(id: string) {
     };
     useChatDrafts.getState().enqueue(key, item);
     return transmit(item);
-  }, [demo, canSend, key, transmit, owner, user, id, client, server]);
+  }, [
+    demo,
+    canSend,
+    key,
+    transmit,
+    owner,
+    user,
+    id,
+    client,
+    server,
+    conversation.data?.dealId,
+  ]);
   const retry = useCallback(
     (clientId: string) => {
       const item = useChatDrafts

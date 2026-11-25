@@ -1,5 +1,6 @@
 import { SubmitReviewDialog } from '../src/features/reviews/components/SubmitReviewDialog';
 import { InitialMessageDialog } from '../src/features/listings/components/InitialMessageDialog';
+import * as dealsService from '../src/features/deals/dealsService';
 import { getPublicListingDetails } from '../src/features/listings/services/publicListingsService';
 import { publicListingFixture } from '../test/fixtures/publicListing';
 import { RequestConfirmationDialog } from '../src/features/listings/components/RequestConfirmationDialog';
@@ -48,6 +49,14 @@ jest.mock('@react-navigation/native', () => ({
     require('react').useEffect(effect, [effect]),
 }));
 const fixture: service.ListingDetail = {
+  availability: {
+    total_kg: 15,
+    reserved_kg: 0,
+    committed_kg: 0,
+    remaining_kg: 15,
+    available: true,
+  },
+  requestEligibility: { eligible: true, reason: 'eligible' },
   id: 12,
   ownerId: 7,
   status: 'active',
@@ -554,7 +563,11 @@ test('offline revalidation keeps confirmation closed and never submits', async (
   expect(post).not.toHaveBeenCalled();
 });
 
-test('real public identity enables the existing Message traveller icon and opens input without POST', async () => {
+test('real public Message traveller opens exact deal selection without a listing-only conversation POST', async () => {
+  jest.spyOn(dealsService, 'getDeals').mockResolvedValue({
+    items: [],
+    pagination: { current_page: 1, last_page: 1, total: 0, per_page: 20 },
+  });
   jest.spyOn(apiClient, 'get').mockResolvedValue({
     status: 200,
     data: { success: true, data: { ...publicListingFixture, id: 12 } },
@@ -570,11 +583,12 @@ test('real public identity enables the existing Message traveller icon and opens
   )[0];
   expect(button.props.disabled).toBe(false);
   await press('Message traveller');
-  expect(tree.root.findByType(InitialMessageDialog).props.visible).toBe(true);
+  expect(tree.root.findByType(InitialMessageDialog).props.visible).toBe(false);
+  expect(dealsService.getDeals).toHaveBeenCalled();
   expect(post).not.toHaveBeenCalled();
 });
 
-test('real Public Listing Details opens authorized review input without altering parcel requests', async () => {
+test('real Public Listing Details opens completed work history without submitting a listing review', async () => {
   jest.spyOn(apiClient, 'get').mockResolvedValue({
     status: 200,
     data: { success: true, data: { ...publicListingFixture, id: 12 } },
@@ -582,9 +596,14 @@ test('real Public Listing Details opens authorized review input without altering
   const remote = await getPublicListingDetails('12');
   jest.spyOn(service, 'getListingDetails').mockResolvedValue(remote);
   const post = jest.spyOn(apiClient, 'post');
+  const gate = jest.spyOn(authFlow, 'requireAuth').mockReturnValue(true);
   await mount();
   await press('Write a review');
-  expect(tree.root.findByType(SubmitReviewDialog).props.visible).toBe(true);
+  expect(gate).toHaveBeenCalledWith({
+    type: 'OPEN_ACCOUNT',
+    params: { destination: 'DealHistory' },
+  });
+  expect(tree.root.findByType(SubmitReviewDialog).props.visible).toBe(false);
   expect(
     tree.root.findByType(SubmitReviewDialog).props.draft.rating,
   ).toBeNull();
@@ -687,4 +706,28 @@ test('public details and unverified cached owner records never display exact pin
   expect(
     tree.root.findAll(node => node.props.children === 'From Location Pin'),
   ).toHaveLength(0);
+});
+
+test('authenticated caller cannot request an available listing without backend pair eligibility', async () => {
+  jest.spyOn(service, 'getListingDetails').mockResolvedValue({
+    ...fixture,
+    requestEligibility: {
+      eligible: false,
+      reason: 'no_eligible_complementary_listing',
+    },
+  });
+  await mount();
+  const actions = tree.root.findAll(
+    node =>
+      node.props.accessibilityLabel === 'Request Now' &&
+      typeof node.props.onPress === 'function',
+  );
+  expect(actions.length).toBeGreaterThan(0);
+  expect(actions.every(node => node.props.disabled === true)).toBe(true);
+  expect(JSON.stringify(tree.toJSON())).toContain(
+    'You need an available matching Send/Carry listing',
+  );
+  expect(tree.root.findByType(RequestConfirmationDialog).props.visible).toBe(
+    false,
+  );
 });

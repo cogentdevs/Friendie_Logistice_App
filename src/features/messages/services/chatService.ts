@@ -11,6 +11,7 @@ import { ApiError } from '../../../types/api';
 import { useAuthStore } from '../../../store/authStore';
 import { endpoints } from '../../../services/api/endpoints';
 import { secureStorage } from '../../../services/storage/secureStorage';
+import { readDealContact } from '../../deals/dealContactService';
 import {
   conversationReadResponseSchema,
   historyReadResponseSchema,
@@ -34,6 +35,8 @@ export type ChatMessage = Omit<z.infer<typeof messageSchema>, 'createdAt'> & {
 export const conversationSchema = z.object({
   id: identifier,
   canSend: z.boolean(),
+  dealId: z.number().int().positive().nullable().optional(),
+  writeUntil: z.number().optional(),
   participant: z.object({
     id: z.number().int().positive(),
     name: z.string(),
@@ -207,9 +210,32 @@ export async function getConversation(
   const value = parsed.data.data;
   if (String(value.id) !== id || value.other_participant.id === owner?.id)
     throw new ApiError('Conversation unavailable.', 'forbidden', 403);
+  let writeUntil: number | undefined;
+  if (value.deal_id) {
+    try {
+      const authorization = await readDealContact(value.deal_id, signal);
+      assertSession(owner, signal);
+      if (
+        authorization.contact.counterpart.id === value.other_participant.id &&
+        authorization.deal.carrier_listing_id === value.listing.id &&
+        authorization.deal.conversation_id === value.id
+      )
+        writeUntil = authorization.validUntil;
+    } catch (error) {
+      assertSession(owner, signal);
+      if (
+        error instanceof ApiError &&
+        (error.kind === 'cancelled' || error.kind === 'unauthorized')
+      )
+        throw error;
+      // Participant history is still readable; missing permission never grants sending.
+    }
+  }
   return {
     id: String(value.id),
-    canSend: true,
+    canSend: !!writeUntil && writeUntil > Date.now(),
+    dealId: value.deal_id ?? null,
+    writeUntil,
     participant: {
       id: value.other_participant.id,
       name: value.other_participant.display_name?.trim() || 'Name unavailable',
@@ -300,6 +326,10 @@ export async function sendMessage(id: string, body: string, clientId: string) {
   const path = guard(id);
   validateMessageText(body);
   const owner = useAuthStore.getState().user;
+  const permission = await getConversation(id);
+  assertSession(owner);
+  if (!permission.canSend)
+    throw new ApiError('This conversation is read-only.', 'forbidden', 403);
   const token = await secureStorage.getToken();
   assertSession(owner);
   if (!token || !/^\S+$/.test(token)) {
@@ -342,6 +372,6 @@ export async function sendMessage(id: string, body: string, clientId: string) {
   } as ChatMessage;
 }
 export function chatPhone(_conversation: Conversation) {
-  // No verified accepted-request/authorized-participant contract is available yet.
+  // Generic chat metadata never grants phone access; use the private deal contact panel.
   return undefined;
 }

@@ -75,7 +75,8 @@ test('verified metadata GET parses participant and keeps private contact/presenc
   const get = jest.spyOn(apiClient, 'get');
   expect(await getConversation('42')).toEqual({
     id: '42',
-    canSend: true,
+    canSend: false,
+    dealId: null,
     participant: { id: 9, name: 'Traveller' },
   });
   expect(get).toHaveBeenCalledWith(

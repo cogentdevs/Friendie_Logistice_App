@@ -1,12 +1,8 @@
+import { useNotificationCounts } from '../../notifications/useNotificationCounts';
 import { KeyboardScrollView as ScrollView } from '../../../components/layout/KeyboardScrollView';
 import { requireAuth } from '../../auth/services/authFlowCoordinator';
 import React, { useState } from 'react';
-import {
-  Keyboard,
-  RefreshControl,
-  StatusBar,
-  StyleSheet,
-} from 'react-native';
+import { Keyboard, RefreshControl, StatusBar, StyleSheet } from 'react-native';
 import { CompositeScreenProps, useIsFocused } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
@@ -39,6 +35,7 @@ import {
   CollectionFeedback,
 } from '../components/HomeSections';
 import { LatestAdsSection } from '../components/LatestAdsSection';
+import { profileAvatarUri } from '../../profile/components/profileAvatarUri';
 type Props = CompositeScreenProps<
   NativeStackScreenProps<HomeStackParamList, 'Home'>,
   CompositeScreenProps<
@@ -47,6 +44,7 @@ type Props = CompositeScreenProps<
   >
 >;
 export function HomeScreen({ navigation }: Props) {
+  const notifications = useNotificationCounts(useIsFocused());
   const focused = useIsFocused(),
     user = useAuthStore(s => s.user),
     data = useHomeData();
@@ -104,11 +102,16 @@ export function HomeScreen({ navigation }: Props) {
                 params: { destination: 'Notifications' },
               })
             }
-            unread={data.unread.isError ? undefined : data.unread.data}
+            unread={
+              user && !notifications.isError
+                ? notifications.data?.unread_count
+                : undefined
+            }
           />
           <WelcomeHero
+            key={user?.id ?? 'guest'}
             name={name}
-            avatar={identity?.avatarUrl ?? undefined}
+            avatar={profileAvatarUri(identity?.avatarUrl)}
             preview={data.preview}
             onProfile={() =>
               navigation.navigate('ProfileStack', { screen: 'Profile' })

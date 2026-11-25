@@ -1,3 +1,4 @@
+import { publicListingSession } from '../../listings/services/listingAvailability';
 import { z } from 'zod';
 import { apiClient } from '../../../services/api/apiClient';
 import { endpoints } from '../../../services/api/endpoints';
@@ -31,10 +32,12 @@ export class HomeLocationsUnavailableError extends StaticMarketplaceDisabledErro
   }
 }
 export async function getHome(signal?: AbortSignal): Promise<HomeData> {
+  const session = await publicListingSession(signal);
   const response = await apiClient.get<unknown>(endpoints.home, {
     signal,
-    headers: { Authorization: false },
+    headers: session.headers,
   });
+  await session.check();
   if (signal?.aborted)
     throw new ApiError('Home request cancelled.', 'cancelled');
   const parsed = responseSchema.safeParse(response.data);

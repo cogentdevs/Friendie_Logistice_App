@@ -1,3 +1,4 @@
+import { useAvailabilitySessionKey } from '../services/listingAvailability';
 import { isListingDemoMode } from '../development/demoListings';
 import { getDemoMyListing } from '../development/demoMyListings';
 import { useQuery } from '@tanstack/react-query';
@@ -18,6 +19,7 @@ import {
 } from '../services/ownListingDetailsService';
 export function useListingDetails(id: string, ownListing = false) {
   const demo = isListingDemoMode();
+  const sessionKey = useAvailabilitySessionKey();
   const focused = useIsFocused();
   const userId = useAuthStore(state => state.user?.id);
   const status = useAuthStore(state => state.status);
@@ -33,7 +35,7 @@ export function useListingDetails(id: string, ownListing = false) {
         ]
       : demo
       ? ['listingDetails', id, 'demo']
-      : ['listingDetails', id, userId ?? 'guest'],
+      : ['listingDetails', id, sessionKey],
     enabled: focused && (!ownListing || privateRead || demoOwner),
     queryFn: ({ signal }) => {
       // Private preview records must never become public API IDs when the
@@ -50,6 +52,7 @@ export function useListingDetails(id: string, ownListing = false) {
     },
     structuralSharing: false,
     staleTime: 0,
+    refetchInterval: focused && !demo ? 30000 : false,
     retry: (failures, error) =>
       failures < 1 &&
       error instanceof ApiError &&

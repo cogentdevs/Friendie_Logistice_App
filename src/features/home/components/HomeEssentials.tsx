@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import {
@@ -70,6 +70,7 @@ export function WelcomeHero({
   onProfile: () => void;
   onMyListings: () => void;
 }) {
+  const [failedAvatar, setFailedAvatar] = useState<string>();
   return (
     <View style={styles.hero}>
       <View style={styles.greetingRow}>
@@ -79,7 +80,13 @@ export function WelcomeHero({
           accessibilityLabel="Open profile"
           onPress={onProfile}
         >
-          <AppAvatar name={name || 'Traveller'} uri={avatar} size={48} />
+          <AppAvatar
+            name={name || 'Traveller'}
+            uri={failedAvatar === avatar ? undefined : avatar}
+            size={48}
+            fallback="person"
+            onError={() => setFailedAvatar(avatar)}
+          />
         </Pressable>
         <View style={styles.copy}>
           <AppText color={colors.navy} style={styles.greeting}>

@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const inboxItemSchema = z.object({
   id: z.number().int().positive(),
+  deal_id: z.number().int().positive().nullable().optional(),
   listing: z.object({
     id: z.number().int().positive(),
     title: z.string().nullable(),

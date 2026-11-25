@@ -52,6 +52,9 @@ export const pendingActionSchema = z.discriminatedUnion('type', [
     type: z.literal('OPEN_ACCOUNT'),
     params: z.object({
       destination: z.enum([
+        'DealHistory',
+        'IncomingRequests',
+        'OutgoingRequests',
         'ProfileDashboard',
         'EditProfile',
         'MyListings',

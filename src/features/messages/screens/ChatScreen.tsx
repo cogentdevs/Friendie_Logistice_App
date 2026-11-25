@@ -63,6 +63,14 @@ function ChatContent({ navigation, route }: Props) {
     [nearBottom, setNearBottom] = useState(true);
   const list = useRef<FlatList<TimelineRow>>(null);
   const back = useCallback(() => {
+    if (route.params.returnToDeal && navigationRef.isReady()) {
+      navigation.replace('Conversations');
+      navigationRef.navigate('AppDrawer', {
+        screen: 'DealDetails',
+        params: { dealId: route.params.returnToDeal },
+      });
+      return;
+    }
     const target = route.params.returnTo;
     if (target && navigationRef.isReady()) {
       navigation.replace('Conversations');
@@ -90,7 +98,7 @@ function ChatContent({ navigation, route }: Props) {
         });
     } else if (navigation.getState().index > 0) navigation.goBack();
     else navigation.replace('Conversations');
-  }, [navigation, route.params.returnTo]);
+  }, [navigation, route.params.returnTo, route.params.returnToDeal]);
   useFocusEffect(
     useCallback(() => {
       const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -421,6 +429,8 @@ function ChatContent({ navigation, route }: Props) {
               ? 'Sending is disabled for a deleted participant.'
               : loadError
               ? 'Sending is disabled until the conversation can be loaded.'
+              : conversation?.canSend === false && !isUiPreviewActive()
+              ? 'This conversation is read-only. Refresh to check messaging access.'
               : 'Sending is currently unavailable.'}
           </AppText>
         )}

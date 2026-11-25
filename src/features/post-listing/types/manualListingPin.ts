@@ -50,8 +50,11 @@ export function formatManualListingPin(
   const numbers = [pin.latitude, pin.longitude];
   if (numbers.some(value => !Number.isFinite(value))) return '';
   const decimals = numbers.map(value => value.toFixed(7));
-  if (decimals.some((value, index) => Number(value) !== numbers[index])) return '';
-  const text = decimals.map(value => value.replace(/\.?0+$/, '') || '0').join(', ');
+  if (decimals.some((value, index) => Number(value) !== numbers[index]))
+    return '';
+  const text = decimals
+    .map(value => value.replace(/\.?0+$/, '') || '0')
+    .join(', ');
   const parsed = parseManualListingPin(text);
   return parsed.valid && parsed.coordinates ? text : '';
 }
@@ -64,4 +67,11 @@ export function listingGeographyChanged(
     previous?.country.id !== next?.country.id ||
     previous?.city.id !== next?.city.id
   );
+}
+
+// Link resolution and exact-pin validation are authoritative on Laravel.
+export function parseListingPinInput(text: string): ParsedManualPin {
+  const value = text.trim();
+  if (/^https:\/\//i.test(value)) return { valid: true };
+  return parseManualListingPin(text);
 }

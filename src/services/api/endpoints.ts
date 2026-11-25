@@ -1,5 +1,7 @@
 // Proposed contract: confirm these paths and response shapes with the Laravel team.
 export const endpoints = {
+  notifications: '/customer/notifications',
+  deals: '/customer/deals',
   home: '/home',
   countries: '/countries',
   cities: '/cities',

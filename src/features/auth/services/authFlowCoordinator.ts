@@ -84,9 +84,10 @@ export function coordinateAuthentication() {
       useAuthFlowStore.setState({ flow: { ...flow, phase: 'resuming' } });
     dismissAuthentication();
     clearAuthFlow();
+    // Account sign-in lands on Home; explicit protected actions still resume.
     navigationRef.navigate(
       'AppDrawer',
-      flow
+      flow && !(authOpen && flow.action.type === 'OPEN_PROFILE')
         ? authActionTarget(flow.action, flow.listingStack)
         : {
             screen: 'MainTabs',

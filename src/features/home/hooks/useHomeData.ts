@@ -1,3 +1,4 @@
+import { useAvailabilitySessionKey } from '../../listings/services/listingAvailability';
 import { useEffect, useRef } from 'react';
 import Toast from 'react-native-toast-message';
 import { ApiError } from '../../../types/api';
@@ -29,6 +30,7 @@ export function useHomeData() {
       mounted.current = false;
     };
   }, []);
+  const sessionKey = useAvailabilitySessionKey();
   const focused = useIsFocused(),
     owner = useAuthStore(s => s.user?.id);
   useDevelopmentStore(s => s.previewActive);
@@ -43,7 +45,9 @@ export function useHomeData() {
   const home = useQuery({
     ...options,
     enabled: focused && !demo,
-    queryKey: publicHomeKey,
+    queryKey: sessionKey === 'guest' ? publicHomeKey : [...publicHomeKey, sessionKey],
+    staleTime: 0,
+    refetchInterval: focused ? 30000 : false,
     queryFn: ({ signal }) => getHome(signal),
   });
   const categories = useQuery({

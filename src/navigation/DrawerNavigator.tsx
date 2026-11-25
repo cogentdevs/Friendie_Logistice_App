@@ -15,6 +15,28 @@ import { ChangePasswordScreen } from '../features/settings/screens/ChangePasswor
 import { SettingsScreen } from '../features/settings/screens/SettingsScreen';
 import { HelpSupportScreen } from '../features/settings/screens/HelpSupportScreen';
 import { AboutScreen } from '../features/about/screens/AboutScreen';
+import {
+  DealHistoryScreen,
+  IncomingRequestsScreen,
+  OutgoingRequestsScreen,
+  DealDetailsScreen,
+} from '../features/deals/DealScreens';
+const AccountHistory = withAccountAccess(DealHistoryScreen, {
+  type: 'OPEN_ACCOUNT',
+  params: { destination: 'DealHistory' },
+});
+const AccountIncoming = withAccountAccess(IncomingRequestsScreen, {
+  type: 'OPEN_ACCOUNT',
+  params: { destination: 'IncomingRequests' },
+});
+const AccountOutgoing = withAccountAccess(OutgoingRequestsScreen, {
+  type: 'OPEN_ACCOUNT',
+  params: { destination: 'OutgoingRequests' },
+});
+const AccountDeal = withAccountAccess(DealDetailsScreen, {
+  type: 'OPEN_ACCOUNT',
+  params: { destination: 'IncomingRequests' },
+});
 const AccountMyListingsScreen = withAccountAccess(MyListingsScreen, {
   type: 'OPEN_ACCOUNT',
   params: { destination: 'MyListings' },
@@ -65,6 +87,29 @@ export function DrawerNavigator() {
         name="MyListings"
         component={AccountMyListingsScreen}
         options={{ title: 'My Listings', headerTitleAlign: 'center' }}
+      />
+      <Drawer.Screen
+        name="DealHistory"
+        component={AccountHistory}
+        options={{ title: 'My Work History' }}
+      />
+      <Drawer.Screen
+        name="IncomingRequests"
+        component={AccountIncoming}
+        options={{ title: 'Incoming Requests' }}
+      />
+      <Drawer.Screen
+        name="OutgoingRequests"
+        component={AccountOutgoing}
+        options={{ title: 'Outgoing Requests' }}
+      />
+      <Drawer.Screen
+        name="DealDetails"
+        component={AccountDeal}
+        options={{
+          title: 'Deal Details',
+          drawerItemStyle: { display: 'none' },
+        }}
       />
       <Drawer.Screen
         name="SavedListings"

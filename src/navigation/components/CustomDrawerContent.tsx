@@ -35,6 +35,9 @@ import { AppButton } from '../../components/ui/AppButton';
 const entries = [
   { name: 'MainTabs', label: 'Home', icon: Home },
   { name: 'MyListings', label: 'My Listings', icon: Package },
+  { name: 'DealHistory', label: 'My Work History', icon: ClipboardList },
+  { name: 'IncomingRequests', label: 'Incoming Requests', icon: ClipboardList },
+  { name: 'OutgoingRequests', label: 'Outgoing Requests', icon: ClipboardList },
   { name: 'SavedListings', label: 'Saved Listings', icon: Heart },
   { name: 'MyReviews', label: 'My Reviews', icon: Star },
   { name: 'Settings', label: 'Settings', icon: Settings },

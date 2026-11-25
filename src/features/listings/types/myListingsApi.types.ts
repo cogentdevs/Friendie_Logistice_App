@@ -1,7 +1,10 @@
+import { availabilitySchema, eligibilitySchema } from '../services/listingAvailability';
 import { z } from 'zod';
 import { formatManualListingPin } from '../../post-listing/types/manualListingPin';
 const id = z.number().int().positive().nullable();
 export const ownListingApiSchema = z.object({
+  availability: availabilitySchema,
+  request_eligibility: eligibilitySchema,
   from_latitude: z.number().finite().min(-90).max(90).nullable().optional(),
   from_longitude: z.number().finite().min(-180).max(180).nullable().optional(),
   to_latitude: z.number().finite().min(-90).max(90).nullable().optional(),

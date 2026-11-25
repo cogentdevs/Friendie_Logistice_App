@@ -3,6 +3,8 @@ import { secureStorage } from '../src/services/storage/secureStorage';
 import { useAuthStore } from '../src/store/authStore';
 import { useDevelopmentStore } from '../src/store/developmentStore';
 import { ApiError } from '../src/types/api';
+import * as contactService from '../src/features/deals/dealContactService';
+import { chatAuthorizationFixture } from '../test/fixtures/dealContact';
 import {
   getPublicListingDetails,
   isVerifiedPublicListing,
@@ -20,6 +22,9 @@ import {
 const adapter = apiClient.defaults.adapter;
 let post: jest.SpyInstance;
 beforeEach(() => {
+  jest
+    .spyOn(contactService, 'readDealContact')
+    .mockImplementation(async () => chatAuthorizationFixture());
   useAuthStore
     .getState()
     .setUser({ id: 8, name: 'Member', email: 'member@example.test' });
@@ -39,7 +44,8 @@ afterEach(() => {
   jest.restoreAllMocks();
   useAuthStore.getState().clear();
 });
-const listing = () => getPublicListingDetails('123');
+const listing = async () =>
+  Object.assign(await getPublicListingDetails('123'), { dealId: 9 });
 test.each([201, 200])(
   'status %i extracts authoritative room without Send Message POST',
   async status => {
@@ -59,7 +65,7 @@ test.each([201, 200])(
     expect(post).toHaveBeenCalledTimes(1);
     expect(post).toHaveBeenCalledWith(
       '/customer/conversations',
-      { post_ads_id: 123, message: ' Hello ' },
+      { deal_id: 9, message: ' Hello ' },
       {
         signal: undefined,
         headers: { Authorization: 'Bearer conversation-test-token' },
@@ -110,7 +116,7 @@ test('double submission has a synchronous session/listing guard', async () => {
   await expect(
     createOrReuseConversation(remote, 'Hello'),
   ).rejects.toMatchObject({ kind: 'validation' });
-  await Promise.resolve();
+  while (!resolve) await Promise.resolve();
   resolve({ status: 201, data: result });
   await first;
   expect(post).toHaveBeenCalledTimes(1);
@@ -122,7 +128,7 @@ test.each([400, 401, 403, 404, 409, 422, 429])(
     await expect(
       createOrReuseConversation(await listing(), 'Hello'),
     ).rejects.toMatchObject({ status });
-    expect(conversationSubmissionState(123)).toBeUndefined();
+    expect(conversationSubmissionState(9)).toBeUndefined();
   },
 );
 test.each([
@@ -133,7 +139,7 @@ test.each([
   const remote = await listing();
   post.mockRejectedValue(error);
   await expect(createOrReuseConversation(remote, 'Hello')).rejects.toThrow();
-  expect(conversationSubmissionState(123)).toBe('unknown');
+  expect(conversationSubmissionState(9)).toBe('unknown');
   await expect(
     createOrReuseConversation(remote, 'Hello'),
   ).rejects.toMatchObject({ kind: 'validation' });
@@ -148,7 +154,7 @@ test.each([
   await expect(
     createOrReuseConversation(await listing(), 'Hello'),
   ).rejects.toMatchObject({ kind: 'unknown' });
-  expect(conversationSubmissionState(123)).toBe('unknown');
+  expect(conversationSubmissionState(9)).toBe('unknown');
 });
 test.each(['logout', 'switch'])(
   'late completion after %s is rejected',
@@ -269,14 +275,15 @@ test('unsupported range/radius never becomes a misleading broader request', () =
     ),
   ).toThrow('not supported');
 });
-test('actual Axios adapter receives public GET then only exact Bearer JSON POST', async () => {
-  jest.restoreAllMocks();
-  jest.spyOn(secureStorage, 'getToken').mockResolvedValue('adapter-test-token');
+test('actual Axios adapter receives personalized public GET then only exact deal Bearer JSON POST', async () => {
+  jest.mocked(apiClient.get).mockRestore();
+  jest.mocked(apiClient.post).mockRestore();
+  jest.mocked(secureStorage.getToken).mockResolvedValue('adapter-test-token');
   const calls: string[] = [];
   apiClient.defaults.adapter = async config => {
     calls.push(config.method + ' ' + config.url);
     if (config.method === 'get') {
-      expect(config.headers.Authorization).toBe(false);
+      expect(config.headers.Authorization).toBe('Bearer adapter-test-token');
       return {
         status: 200,
         statusText: '',
@@ -287,7 +294,7 @@ test('actual Axios adapter receives public GET then only exact Bearer JSON POST'
     }
     expect(config.headers.Authorization).toBe('Bearer adapter-test-token');
     expect(JSON.parse(config.data)).toEqual({
-      post_ads_id: 123,
+      deal_id: 9,
       message: 'Hello',
     });
     return { status: 201, statusText: '', headers: {}, config, data: result };

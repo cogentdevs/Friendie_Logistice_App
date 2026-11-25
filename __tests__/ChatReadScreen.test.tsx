@@ -4,6 +4,8 @@ import { AppState, TextInput, FlatList } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import axios from 'axios';
 import Toast from 'react-native-toast-message';
+import * as contactService from '../src/features/deals/dealContactService';
+import { chatAuthorizationFixture } from '../test/fixtures/dealContact';
 import { ChatScreen } from '../src/features/messages/screens/ChatScreen';
 import { apiClient } from '../src/services/api/apiClient';
 import { secureStorage } from '../src/services/storage/secureStorage';
@@ -26,6 +28,7 @@ jest.mock('@react-navigation/elements', () => ({
   useHeaderHeight: () => 56,
 }));
 const metadata = {
+  deal_id: 9,
   id: 42,
   listing: { id: 501, title: 'Parcel' },
   other_participant: { id: 9, display_name: 'Real participant' },
@@ -79,6 +82,9 @@ async function mount(node?: React.ReactNode) {
   await settle();
 }
 beforeEach(() => {
+  jest.spyOn(contactService, 'readDealContact').mockImplementation(async () => {
+    return chatAuthorizationFixture(metadata.listing.id);
+  });
   Object.defineProperty(AppState, 'currentState', {
     value: 'active',
     configurable: true,
@@ -240,11 +246,36 @@ test('empty history is truthful and preserves composer', async () => {
   ).toBeGreaterThan(0);
   expect(tree.root.findByType(TextInput)).toBeDefined();
 });
+
+test('legacy participant history remains visible with a disabled composer and no contact fetch', async () => {
+  const reads = apiClient.defaults.adapter as import('axios').AxiosAdapter;
+  apiClient.defaults.adapter = async config => {
+    const result = await reads(config);
+    return config.url === '/customer/conversations/42'
+      ? {
+          ...result,
+          data: { ...result.data, data: { ...metadata, deal_id: null } },
+        }
+      : result;
+  };
+  await mount();
+  expect(tree.root.findByType(FlatList).props.data).toHaveLength(2);
+  expect(
+    tree.root.findAll(
+      node =>
+        node.props.accessibilityLabel === 'Send message' &&
+        typeof node.props.onPress === 'function',
+    )[0].props.disabled,
+  ).toBe(true);
+  expect(contactService.readDealContact).not.toHaveBeenCalled();
+});
 test('existing Send button uses POST and shows only the acknowledged server message', async () => {
   await mount();
   let acknowledge!: () => void;
   let posts = 0;
+  const reads = apiClient.defaults.adapter as import('axios').AxiosAdapter;
   apiClient.defaults.adapter = async config => {
+    if (config.method === 'get') return reads(config);
     expect(config.method).toBe('post');
     expect(config.url).toBe('/customer/conversations/42/messages');
     expect(JSON.parse(config.data)).toEqual({ message: 'New actual message' });

@@ -16,7 +16,9 @@ import {
 export function useInitialConversation(
   listing: { id: number } | undefined,
   focused: boolean,
-  stack: 'HomeStack' | 'ListingsStack',
+  _stack: 'HomeStack' | 'ListingsStack',
+  dealId?: number,
+  onChooseDeal?: () => void,
 ) {
   const user = useAuthStore(state => state.user);
   const status = useAuthStore(state => state.status);
@@ -24,7 +26,7 @@ export function useInitialConversation(
   const [visible, setVisible] = useState(false),
     [busy, setBusy] = useState(false);
   const key =
-    user && listing ? threadKey(user.id, 'initial:' + listing.id) : '';
+    user && listing ? threadKey(user.id, 'initial:deal:' + dealId) : '';
   const draft = useChatDrafts(state => state.threads[key]?.draft ?? '');
   const flight = useRef(false);
   const controller = useRef<AbortController | null>(null);
@@ -42,9 +44,13 @@ export function useInitialConversation(
       generation.current = epoch + 1;
       controller.current?.abort();
     };
-  }, [user, status, listing?.id, focused]);
+  }, [user, status, listing?.id, focused, dealId]);
   const open = useCallback(() => {
-    if (!listing || !isVerifiedPublicListing(listing) || isUiPreviewActive()) {
+    if (
+      !listing ||
+      (!dealId && !isVerifiedPublicListing(listing)) ||
+      isUiPreviewActive()
+    ) {
       Toast.show({
         type: 'info',
         text1: 'Messaging unavailable',
@@ -59,12 +65,24 @@ export function useInitialConversation(
       });
       return;
     }
+    if (!dealId) {
+      if (onChooseDeal) {
+        onChooseDeal();
+        return;
+      }
+      Toast.show({
+        type: 'info',
+        text1: 'Choose a deal',
+        text2: 'Open an accepted or confirmed deal to contact its participant.',
+      });
+      return;
+    }
     setVisible(true);
-  }, [listing]);
+  }, [listing, dealId, onChooseDeal]);
   const setDraft = (text: string) => {
     if (
       !busy &&
-      !conversationSubmissionState(listing?.id ?? 0) &&
+      !conversationSubmissionState(dealId ?? 0) &&
       !completed.current &&
       user &&
       useAuthStore.getState().user === user
@@ -75,6 +93,7 @@ export function useInitialConversation(
     if (
       flight.current ||
       !listing ||
+      !dealId ||
       !user ||
       status !== 'authenticated' ||
       !focused
@@ -93,7 +112,11 @@ export function useInitialConversation(
       const body = useChatDrafts.getState().threads[key]?.draft ?? '';
       const result =
         completed.current ??
-        (await createOrReuseConversation(listing, body, abort.signal));
+        (await createOrReuseConversation(
+          { id: listing.id, dealId },
+          body,
+          abort.signal,
+        ));
       if (!current()) return;
       completed.current = result;
       const inboxKey = ['messages.inbox', user.id];
@@ -151,14 +174,14 @@ export function useInitialConversation(
             screen: 'Chat',
             params: {
               conversationId: room,
-              returnTo: { stack, listingId: String(listing.id) },
+              returnToDeal: dealId,
             },
           },
         },
       });
     } catch (error) {
       if (!current()) return;
-      const unknown = conversationSubmissionState(listing.id) === 'unknown';
+      const unknown = conversationSubmissionState(dealId) === 'unknown';
       Toast.show({
         type: unknown ? 'warning' : 'error',
         text1: unknown ? 'Delivery not confirmed' : 'Unable to continue',
@@ -178,7 +201,7 @@ export function useInitialConversation(
     visible: visible && focused && status === 'authenticated',
     draft,
     busy,
-    blocked: conversationSubmissionState(listing?.id ?? 0) === 'unknown',
+    blocked: conversationSubmissionState(dealId ?? 0) === 'unknown',
     open,
     setDraft,
     send,

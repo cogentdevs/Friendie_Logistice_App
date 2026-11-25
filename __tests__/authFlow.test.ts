@@ -93,6 +93,25 @@ test('already authenticated goes directly without Login', () => {
   expect(navigate).toHaveBeenCalledTimes(1);
   expect(navigate.mock.calls[0][0]).toBe('AppDrawer');
 });
+
+test.each(['Login', 'Register'] as const)(
+  '%s account entry finishes on Home after confirmed authentication',
+  entry => {
+    requireAuth({ type: 'OPEN_PROFILE' }, entry);
+    expect(navigate).toHaveBeenCalledWith('AuthStack', { screen: entry });
+    expect(useAuthStore.getState().status).toBe('guest');
+    useAuthStore.getState().setUser(member);
+    coordinateAuthentication();
+    expect(navigate).toHaveBeenLastCalledWith('AppDrawer', {
+      screen: 'MainTabs',
+      params: { screen: 'HomeStack', params: { screen: 'Home' } },
+    });
+    const calls = navigate.mock.calls.length;
+    coordinateAuthentication();
+    expect(navigate).toHaveBeenCalledTimes(calls);
+    expect(useAuthFlowStore.getState().flow).toBeNull();
+  },
+);
 test('restoring waits then resolves as guest; navigation readiness also waits', () => {
   useAuthStore.setState({ status: 'restoring', user: null });
   requireAuth({ type: 'OPEN_PROFILE' });
@@ -242,7 +261,13 @@ test('explicit static preview resumes the pending carry form once without authen
     coordinateAuthentication();
     expect(useAuthStore.getState().status).toBe('guest');
     expect(useAuthFlowStore.getState().flow).toBeNull();
-    expect(navigate).toHaveBeenLastCalledWith('AppDrawer', authActionTarget({ type: 'POST_LISTING', params: { listingType: 'carry' } }));
+    expect(navigate).toHaveBeenLastCalledWith(
+      'AppDrawer',
+      authActionTarget({
+        type: 'POST_LISTING',
+        params: { listingType: 'carry' },
+      }),
+    );
     const calls = navigate.mock.calls.length;
     coordinateAuthentication();
     expect(navigate).toHaveBeenCalledTimes(calls);

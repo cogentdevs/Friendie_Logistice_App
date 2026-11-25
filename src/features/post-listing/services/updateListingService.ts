@@ -11,8 +11,13 @@ import {
 } from '../../listings/types/myListingsApi.types';
 import { ListingDraft } from '../types/listingDraft';
 import { createListingPayload } from './createListingService';
-import { hydrateListingPin, ListingCoordinates, pinSides, pinResponseMatches } from './listingPinPayload';
-import { parseManualListingPin } from '../types/manualListingPin';
+import {
+  hydrateListingPin,
+  ListingCoordinates,
+  pinSides,
+  pinResponseMatches,
+} from './listingPinPayload';
+import { parseListingPinInput } from '../types/manualListingPin';
 import {
   getListingReferences,
   ReferenceOption,
@@ -54,11 +59,23 @@ export async function loadListingEdit(
   if (!user || useAuthStore.getState().status !== 'authenticated')
     throw new ApiError('Sign in to edit your listing.', 'unauthorized', 401);
   const existing = contexts.get(id);
-  if (existing?.user === user && (existing.state === 'pending' || existing.state === 'unknown' || (existing.state === 'ready' && existing.draft)))
+  if (
+    existing?.user === user &&
+    (existing.state === 'pending' ||
+      existing.state === 'unknown' ||
+      (existing.state === 'ready' && existing.draft))
+  )
     return existing;
   const row = (await getOwnListingDetails(id, signal)).backend;
-  const fromCitiesRequest = row.from_country_id ? getListingReferences('cities', row.from_country_id, signal) : Promise.resolve([]);
-  const toCitiesRequest = row.to_country_id === row.from_country_id ? fromCitiesRequest : row.to_country_id ? getListingReferences('cities', row.to_country_id, signal) : Promise.resolve([]);
+  const fromCitiesRequest = row.from_country_id
+    ? getListingReferences('cities', row.from_country_id, signal)
+    : Promise.resolve([]);
+  const toCitiesRequest =
+    row.to_country_id === row.from_country_id
+      ? fromCitiesRequest
+      : row.to_country_id
+      ? getListingReferences('cities', row.to_country_id, signal)
+      : Promise.resolve([]);
   const [categories, countries, currencies, fromCities, toCities] =
     await Promise.all([
       getListingReferences('categories', undefined, signal),
@@ -112,7 +129,13 @@ export async function loadListingEdit(
   const context: EditContext = { original: row, initial, user, state: 'ready' };
   // A slower duplicate owner read must not replace a newer edit/draft snapshot.
   const latest = contexts.get(id);
-  if (latest?.user === user && (latest !== existing || latest.draft || latest.state === 'pending' || latest.state === 'unknown'))
+  if (
+    latest?.user === user &&
+    (latest !== existing ||
+      latest.draft ||
+      latest.state === 'pending' ||
+      latest.state === 'unknown')
+  )
     return latest;
   contexts.set(id, context);
   return context;
@@ -124,6 +147,7 @@ export function changedListingFields(
   const full = createListingPayload(draft);
   // Coordinate pairs are diffed atomically below, never as independent axes.
   for (const side of pinSides) {
+    delete full[`${side}_location_pin`];
     delete full[`${side}_latitude`];
     delete full[`${side}_longitude`];
   }
@@ -131,18 +155,25 @@ export function changedListingFields(
   for (const side of pinSides) {
     const pin = draft[`${side}Pin`];
     if (!pin || pin.intent === 'unchanged') continue;
-    const parsed = parseManualListingPin(pin.text);
+    const parsed = parseListingPinInput(pin.text);
     if (!parsed.valid) throw new ApiError(parsed.error, 'validation');
-    const latitude = context.original[`${side}_latitude`], longitude = context.original[`${side}_longitude`];
-    const geographyChanged = full[`${side}_country_id`] !== context.original[`${side}_country_id`] || full[`${side}_city_id`] !== context.original[`${side}_city_id`];
+    const latitude = context.original[`${side}_latitude`],
+      longitude = context.original[`${side}_longitude`];
+    const geographyChanged =
+      full[`${side}_country_id`] !== context.original[`${side}_country_id`] ||
+      full[`${side}_city_id`] !== context.original[`${side}_city_id`];
     if (parsed.coordinates) {
-      if (geographyChanged || parsed.coordinates.latitude !== latitude || parsed.coordinates.longitude !== longitude) {
-        coordinates[`${side}_latitude`] = parsed.coordinates.latitude;
-        coordinates[`${side}_longitude`] = parsed.coordinates.longitude;
+      if (
+        geographyChanged ||
+        parsed.coordinates.latitude !== latitude ||
+        parsed.coordinates.longitude !== longitude
+      ) {
+        coordinates[`${side}_location_pin`] = pin.text.trim();
       }
+    } else if (pin.text.trim()) {
+      coordinates[`${side}_location_pin`] = pin.text.trim();
     } else if (typeof latitude === 'number' && typeof longitude === 'number') {
-      coordinates[`${side}_latitude`] = null;
-      coordinates[`${side}_longitude`] = null;
+      coordinates[`${side}_location_pin`] = null;
     }
   }
   const intended = {
@@ -155,20 +186,30 @@ export function changedListingFields(
   };
   // The form has no visibility control. Preserve the stored value by omission.
   const fields = intended;
-  return { ...Object.fromEntries(
-    Object.entries(fields).filter(([key, value]) => {
-      let previous = context.original[key as keyof OwnListingRecord];
-      if (key === 'currency' && typeof previous === 'string')
-        previous = previous.trim().toUpperCase();
-      if (
-        (key === 'from_area' || key === 'to_area' || key === 'from_address' || key === 'to_address') &&
-        typeof previous === 'string'
-      )
-        previous = previous.trim() || null;
-      if ((key === 'from_address' || key === 'to_address') && previous === undefined) previous = null;
-      return key !== 'show_contact_info' && value !== previous;
-    }),
-  ), ...coordinates };
+  return {
+    ...Object.fromEntries(
+      Object.entries(fields).filter(([key, value]) => {
+        let previous = context.original[key as keyof OwnListingRecord];
+        if (key === 'currency' && typeof previous === 'string')
+          previous = previous.trim().toUpperCase();
+        if (
+          (key === 'from_area' ||
+            key === 'to_area' ||
+            key === 'from_address' ||
+            key === 'to_address') &&
+          typeof previous === 'string'
+        )
+          previous = previous.trim() || null;
+        if (
+          (key === 'from_address' || key === 'to_address') &&
+          previous === undefined
+        )
+          previous = null;
+        return key !== 'show_contact_info' && value !== previous;
+      }),
+    ),
+    ...coordinates,
+  };
 }
 const response = z.object({
   success: z.literal(true),
@@ -196,10 +237,23 @@ export async function updateListing(
   const payload = changedListingFields(context, draft);
   const expectedPins: ListingCoordinates = { ...payload };
   for (const side of pinSides) {
-    const changed = (payload[`${side}_country_id`] !== undefined && payload[`${side}_country_id`] !== context.original[`${side}_country_id`]) || (payload[`${side}_city_id`] !== undefined && payload[`${side}_city_id`] !== context.original[`${side}_city_id`]);
-    if (expectedPins[`${side}_latitude`] === undefined && context.original[`${side}_latitude`] !== undefined) {
-      expectedPins[`${side}_latitude`] = changed ? null : context.original[`${side}_latitude`];
-      expectedPins[`${side}_longitude`] = changed ? null : context.original[`${side}_longitude`];
+    const changed =
+      (payload[`${side}_country_id`] !== undefined &&
+        payload[`${side}_country_id`] !==
+          context.original[`${side}_country_id`]) ||
+      (payload[`${side}_city_id`] !== undefined &&
+        payload[`${side}_city_id`] !== context.original[`${side}_city_id`]);
+    if (
+      payload[`${side}_location_pin`] === undefined &&
+      expectedPins[`${side}_latitude`] === undefined &&
+      context.original[`${side}_latitude`] !== undefined
+    ) {
+      expectedPins[`${side}_latitude`] = changed
+        ? null
+        : context.original[`${side}_latitude`];
+      expectedPins[`${side}_longitude`] = changed
+        ? null
+        : context.original[`${side}_longitude`];
     }
   }
   if (!Object.keys(payload).length) return null;
@@ -232,8 +286,10 @@ export async function updateListing(
       !parsed.success ||
       !pinResponseMatches(expectedPins, parsed.data.data) ||
       parsed.data.data.id !== context.original.id ||
-      (Object.prototype.hasOwnProperty.call(payload, 'from_address') && parsed.data.data.from_address !== payload.from_address) ||
-      (Object.prototype.hasOwnProperty.call(payload, 'to_address') && parsed.data.data.to_address !== payload.to_address)
+      (Object.prototype.hasOwnProperty.call(payload, 'from_address') &&
+        parsed.data.data.from_address !== payload.from_address) ||
+      (Object.prototype.hasOwnProperty.call(payload, 'to_address') &&
+        parsed.data.data.to_address !== payload.to_address)
     )
       throw new ApiError('Update status could not be confirmed.', 'unknown');
     context.state = 'confirmed';
@@ -247,6 +303,11 @@ export async function updateListing(
     // repeating PUT or claiming which request performed the write.
     if (
       context.state === 'unknown' &&
+      !pinSides.some(
+        side =>
+          typeof payload[`${side}_location_pin`] === 'string' &&
+          /^https:\/\//i.test(String(payload[`${side}_location_pin`])),
+      ) &&
       current() &&
       !signal?.aborted &&
       !(error instanceof ApiError && error.kind === 'cancelled')
@@ -258,7 +319,9 @@ export async function updateListing(
           !signal?.aborted &&
           pinResponseMatches(expectedPins, observed) &&
           Object.entries(payload).every(
-            ([key, value]) => observed[key as keyof OwnListingRecord] === value,
+            ([key, value]) =>
+              key.endsWith('_location_pin') ||
+              observed[key as keyof OwnListingRecord] === value,
           )
         ) {
           context.state = 'confirmed';

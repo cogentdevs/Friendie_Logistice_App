@@ -3,6 +3,7 @@ import {
   getDemoListings,
   isListingDemoMode,
 } from '../development/demoListings';
+import { availabilitySchema, eligibilitySchema } from './listingAvailability';
 import { z } from 'zod';
 import { SearchFilters } from '../../search/store/searchStore';
 import { LocationSelection } from '../../location/types/location';
@@ -12,6 +13,8 @@ import {
   dateRangeSchema,
 } from '../../search/types/search';
 export const listingSchema = z.object({
+  availability: availabilitySchema,
+  requestEligibility: eligibilitySchema,
   coverImageUrl: z.string().url().nullable().optional(),
   id: z.number().int().positive(),
   type: z.enum(['send', 'carry']),

@@ -35,6 +35,7 @@ export type MessagesStackParamList = {
   Conversations: undefined;
   Chat: {
     conversationId: string;
+    returnToDeal?: number;
     returnTo?: { stack: 'HomeStack' | 'ListingsStack'; listingId: string };
   };
 };
@@ -51,6 +52,10 @@ export type MainTabParamList = {
   ProfileStack: NavigatorScreenParams<ProfileStackParamList>;
 };
 export type DrawerParamList = {
+  DealHistory: undefined;
+  IncomingRequests: undefined;
+  OutgoingRequests: undefined;
+  DealDetails: { dealId: number };
   MainTabs: NavigatorScreenParams<MainTabParamList>;
   MyListings: undefined;
   SavedListings: undefined;

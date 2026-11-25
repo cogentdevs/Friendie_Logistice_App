@@ -3,6 +3,8 @@ import Renderer, { ReactTestRenderer } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { KeyboardAvoidingView, Modal } from 'react-native';
 import Toast from 'react-native-toast-message';
+import * as contactService from '../src/features/deals/dealContactService';
+import { chatAuthorizationFixture } from '../test/fixtures/dealContact';
 import { useInitialConversation } from '../src/features/messages/hooks/useInitialConversation';
 import { InitialMessageDialog } from '../src/features/listings/components/InitialMessageDialog';
 import { AppInput } from '../src/components/ui/AppInput';
@@ -30,7 +32,7 @@ let tree: ReactTestRenderer,
 let row: Awaited<ReturnType<typeof getPublicListingDetails>>;
 let focused = true;
 function Harness() {
-  hook = useInitialConversation(row, focused, 'ListingsStack');
+  hook = useInitialConversation(row, focused, 'ListingsStack', 9);
   return (
     <InitialMessageDialog
       visible={hook.visible}
@@ -44,6 +46,7 @@ function Harness() {
   );
 }
 beforeEach(async () => {
+  jest.spyOn(contactService, 'readDealContact').mockImplementation(async () => chatAuthorizationFixture());
   focused = true;
   useAuthStore
     .getState()
@@ -130,7 +133,7 @@ test('201 uses existing Chat route and GET history lifecycle without inserting a
         screen: 'Chat',
         params: {
           conversationId: '42',
-          returnTo: { stack: 'ListingsStack', listingId: '123' },
+          returnToDeal: 9,
         },
       },
     },
@@ -315,7 +318,7 @@ test.each(['logout', 'switch', 'blur'])(
     expect(navigationRef.navigate).not.toHaveBeenCalled();
     if (mode !== 'blur')
       expect(
-        useChatDrafts.getState().threads[threadKey(8, 'initial:123')],
+        useChatDrafts.getState().threads[threadKey(8, 'initial:deal:9')],
       ).toBeUndefined();
   },
 );

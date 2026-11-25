@@ -60,9 +60,11 @@ test('an in-flight member response cannot populate a guest cache after session c
       }),
   );
   const result = getListingDetails('12');
+  const rejected = result.catch(error => error);
+  while (!finish) await Promise.resolve();
   useAuthStore.getState().clear();
   finish({ status: 200, data: { success: true, data } });
-  await expect(result).rejects.toMatchObject({ kind: 'cancelled' });
+  await expect(rejected).resolves.toMatchObject({ kind: 'cancelled' });
 });
 
 test.each([

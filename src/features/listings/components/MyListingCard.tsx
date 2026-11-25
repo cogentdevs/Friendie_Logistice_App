@@ -1,3 +1,4 @@
+import { ListingAvailability } from './ListingAvailability';
 import React, { memo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { ArrowRight, CalendarDays, Package } from 'lucide-react-native';
@@ -38,6 +39,7 @@ export const MyListingCard = memo(function MyListingCardView({
       onPress={() => onOpen(item.id)}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
+      <ListingAvailability availability={item.availability} />
       <View style={styles.top}>
         <View style={styles.route}>
           <AppText color={colors.navy} style={styles.heading}>
